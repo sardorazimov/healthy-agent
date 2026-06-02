@@ -3,14 +3,19 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.miransas.agent</string>
+    <string>com.miransas.pulse</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/KULLANICI_ADIN/PROJE_DIZININ/miransas-agent/bin/miransas_agent</string>
+        <string>/Users/YOUR_USER/.local/bin/miransas-pulse</string>
+        <string>--foreground</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USER/Library/Logs/miransas-pulse.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USER/Library/Logs/miransas-pulse.err.log</string>
 </dict>
 </plist>

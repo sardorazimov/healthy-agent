@@ -29,4 +29,13 @@ clean:
 	rm -rf $(BUILD_DIR) $(BIN_DIR)
 	@echo "[Miransas-Build] Temizlik tamamlandı."
 
-.PHONY: all clean
+install: all
+	./scripts/install.sh
+
+uninstall:
+	./scripts/uninstall.sh
+
+hud: all
+	$(TARGET) --hud
+
+.PHONY: all clean install uninstall hud

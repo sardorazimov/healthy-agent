@@ -1,62 +1,109 @@
-# miransas-agent
+# Miransas Pulse
 
-`miransas-agent`, macOS uzerinde sistem ve uygulama sagligi izleme fikri icin gelistirilen hafif bir agent prototipidir. Su an CPU/RAM metriklerini okur, UDP ile JSON gonderebilir ve ekranda kucuk transparan bir health paneli gosterebilir.
+Miransas Pulse, macOS icin hafif bir sistem ve uygulama sagligi izleme agent'i olarak tasarlaniyor. Su an CPU/RAM metriklerini okuyabilir, UDP ile JSON gonderebilir ve ekranda kucuk transparan bir health paneli gosterebilir.
 
-RAM bilgisi icin `sysctl` ve Mach VM istatistiklerini, CPU kullanimi icin Mach processor tick farklarini kullanir. Health paneli macOS Cocoa ile yazilmistir.
+Hedef urun fikri: Windows'taki uygulama/gecmis kullanim hissine yakin, ama daha sade bir macOS health overlay'i. Hangi uygulama calisiyor, ne kadar sure acik kaldi, ne kadar CPU/RAM kullaniyor ve sistemi ne yoruyor sorularina cevap verecek.
 
-## Derleme
+## Gereksinimler
 
-Derleme icin macOS geliştirici araclari gerekir. Makefile C dosyalarini ve Cocoa tabanli `src/hud.m` dosyasini birlikte derler.
+- macOS
+- Xcode Command Line Tools
+
+Command Line Tools yoksa:
+
+```bash
+xcode-select --install
+```
+
+## Hemen Deneme
 
 ```bash
 make
-```
-
-Binary su adrese uretilir:
-
-```bash
-bin/miransas_agent
-```
-
-Temizlemek icin:
-
-```bash
-make clean
-```
-
-## Calistirma
-
-Tek paket gonderip cikmak icin:
-
-```bash
-./bin/miransas_agent --once
-```
-
-Terminalde surekli calistirmak ve loglari gormek icin:
-
-```bash
-./bin/miransas_agent --foreground
-```
-
-Kucuk transparan health panelini ekranda gostermek icin:
-
-```bash
 ./bin/miransas_agent --hud
 ```
 
-Argumansiz calistirildiginda POSIX daemon olarak arka plana ayrilir:
+`--hud` ekranda kucuk transparan health panelini acar ve birkac saniye sonra kapatir.
 
-```bash
-./bin/miransas_agent
-```
-
-Yardim:
+Terminalde yardim:
 
 ```bash
 ./bin/miransas_agent --help
 ```
 
-## UDP hedefi
+## Kurulum
+
+Kullanici hesabina kurmak ve arka plan servisini baslatmak icin:
+
+```bash
+make install
+```
+
+Bu komut:
+
+- binary'yi `~/.local/bin/miransas-pulse` yoluna kopyalar
+- `~/Library/LaunchAgents/com.miransas.pulse.plist` dosyasini uretir
+- LaunchAgent'i `launchctl` ile baslatir
+- loglari `~/Library/Logs/miransas-pulse.log` ve `~/Library/Logs/miransas-pulse.err.log` dosyalarina yazar
+
+Kurulumdan sonra HUD test etmek icin:
+
+```bash
+~/.local/bin/miransas-pulse --hud
+```
+
+Servis durumunu gormek icin:
+
+```bash
+launchctl list | grep com.miransas.pulse
+```
+
+Loglari izlemek icin:
+
+```bash
+tail -f ~/Library/Logs/miransas-pulse.log
+```
+
+## Kaldirma
+
+```bash
+make uninstall
+```
+
+Bu komut LaunchAgent'i durdurur, plist dosyasini ve kurulu binary'yi siler.
+
+## Gelistirme Komutlari
+
+Derleme:
+
+```bash
+make
+```
+
+Temizleme:
+
+```bash
+make clean
+```
+
+Tek UDP paket gonderip cikma:
+
+```bash
+./bin/miransas_agent --once
+```
+
+Terminalde surekli calisma:
+
+```bash
+./bin/miransas_agent --foreground
+```
+
+HUD kisayolu:
+
+```bash
+make hud
+```
+
+## UDP Hedefi
 
 Varsayilan hedef `include/agent.h` icinde tanimlidir:
 
@@ -71,16 +118,25 @@ Giden paket formati:
 {"node":"Miransas-Node-01","cpu_usage_percent":0.00,"total_ram_mb":8192,"free_ram_mb":225}
 ```
 
-## LaunchAgent
+## Durum
 
-`com.miransas.agent.plist` dosyasindaki binary yolunu kendi proje dizinine gore guncelle:
+Calisan prototip:
 
-```xml
-<string>/Users/KULLANICI_ADIN/PROJE_DIZININ/miransas-agent/bin/miransas_agent</string>
-```
+- CPU/RAM okuma
+- UDP JSON gonderimi
+- transparan macOS HUD
+- kullanici LaunchAgent kurulumu
 
-Sonra macOS LaunchAgent olarak yukleyebilirsin.
+Siradaki urunlesme adimlari:
 
-## Notlar
+- process/app listesi okuma
+- app bazinda CPU/RAM ve calisma suresi
+- HUD icinde en cok kaynak kullanan uygulamalar
+- local gunluk kullanim kaydi
+- menubar uygulamasi veya ayarlar paneli
 
-Aktif kaynaklar `src/` ve `include/` altindadir. Siradaki buyuk adim, calisan uygulamalari process bazinda okuyup health panelinde uygulama adi, calisma suresi, CPU ve RAM kullanimi olarak gostermektir.
+## Isim
+
+Bu projenin son adi icin onerim: **Miransas Pulse**.
+
+Sebep: "Pulse" sistemin nabzini, uygulama sagligini ve canli kaynak kullanimini iyi anlatiyor. Teknik binary adi simdilik `miransas_agent`, kurulu komut adi ise `miransas-pulse`.
