@@ -12,7 +12,6 @@
 #define MAX_TRACKED_PROCESSES 256
 #define TOP_PROCESS_LIMIT 8
 #define DEFAULT_API_PORT 9876
-#define DEFAULT_DB_PATH "/tmp/miransas-pulse.db"
 
 typedef struct {
     uint64_t total_ram;
@@ -47,11 +46,6 @@ int send_metrics(int sock_fd, const sys_metrics_t *metrics);
 int collect_process_snapshot(process_snapshot_t *snapshot);
 void sort_top_processes(process_snapshot_t *snapshot);
 int calculate_system_health_score(const sys_metrics_t *metrics, const process_snapshot_t *snapshot);
-int storage_open(const char *path);
-void storage_close(void);
-int storage_init(void);
-int storage_save_snapshot(const agent_snapshot_t *snapshot);
-int storage_export_report(const char *path, const agent_snapshot_t *snapshot);
 int api_server_start(int port);
 void api_server_stop(void);
 void api_server_publish(const agent_snapshot_t *snapshot);

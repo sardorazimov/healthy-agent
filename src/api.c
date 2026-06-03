@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -56,20 +57,42 @@ static void send_response(int client, const char *status, const char *content_ty
     send(client, body, body_len, 0);
 }
 
-static void send_ws_text(int client, const char *body) {
-    unsigned char header[4];
-    size_t len = strlen(body);
-    header[0] = 0x81;
-    if (len < 126) {
-        header[1] = (unsigned char)len;
-        send(client, header, 2, 0);
-    } else {
-        header[1] = 126;
-        header[2] = (unsigned char)((len >> 8) & 0xff);
-        header[3] = (unsigned char)(len & 0xff);
-        send(client, header, 4, 0);
+static void *sse_loop(void *arg) {
+    int client = (int)(intptr_t)arg;
+    char body[BUFFER_SIZE];
+    char frame[BUFFER_SIZE + 32];
+    agent_snapshot_t snapshot;
+
+    const char *headers =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/event-stream\r\n"
+        "Cache-Control: no-cache\r\n"
+        "Connection: keep-alive\r\n"
+        "Access-Control-Allow-Origin: *\r\n\r\n";
+    if (send(client, headers, strlen(headers), 0) < 0) {
+        close(client);
+        return NULL;
     }
-    send(client, body, len, 0);
+
+    while (api_running) {
+        pthread_mutex_lock(&snapshot_lock);
+        snapshot = latest_snapshot;
+        pthread_mutex_unlock(&snapshot_lock);
+        snapshot_to_json(&snapshot, body, sizeof(body));
+
+        int frame_len = snprintf(frame, sizeof(frame), "data: %s\r\n\r\n", body);
+        if (frame_len <= 0) {
+            break;
+        }
+        if (send(client, frame, (size_t)frame_len, 0) < 0) {
+            break;
+        }
+
+        sleep(INTERVAL_SEC);
+    }
+
+    close(client);
+    return NULL;
 }
 
 static void handle_client(int client) {
@@ -85,6 +108,16 @@ static void handle_client(int client) {
     }
     request[read_len] = '\0';
 
+    if (strncmp(request, "GET /stream", 11) == 0) {
+        pthread_t stream_thread;
+        if (pthread_create(&stream_thread, NULL, sse_loop, (void *)(intptr_t)client) != 0) {
+            close(client);
+            return;
+        }
+        pthread_detach(stream_thread);
+        return;
+    }
+
     pthread_mutex_lock(&snapshot_lock);
     snapshot = latest_snapshot;
     pthread_mutex_unlock(&snapshot_lock);
@@ -94,14 +127,6 @@ static void handle_client(int client) {
         send_response(client, "200 OK", "application/json", body);
     } else if (strncmp(request, "GET /metrics", 12) == 0) {
         send_response(client, "200 OK", "application/json", body);
-    } else if (strncmp(request, "GET /stream", 11) == 0) {
-        const char *upgrade =
-            "HTTP/1.1 101 Switching Protocols\r\n"
-            "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n"
-            "Sec-WebSocket-Accept: miransas-pulse-local-stream\r\n\r\n";
-        send(client, upgrade, strlen(upgrade), 0);
-        send_ws_text(client, body);
     } else {
         send_response(client, "404 Not Found", "application/json", "{\"error\":\"not found\"}");
     }
@@ -137,6 +162,8 @@ static void *api_loop(void *arg) {
     while (api_running) {
         int client = accept(api_fd, NULL, NULL);
         if (client >= 0) {
+            int nosigpipe = 1;
+            setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, sizeof(nosigpipe));
             handle_client(client);
         } else if (errno != EINTR) {
             break;

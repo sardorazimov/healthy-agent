@@ -17,14 +17,12 @@ static void handle_shutdown(int signal_number) {
 }
 
 static void print_usage(const char *program_name) {
-    printf("Usage: %s [--foreground] [--once] [--hud] [--menubar] [--api-port PORT] [--db PATH] [--export PATH] [--help]\n", program_name);
+    printf("Usage: %s [--foreground] [--once] [--hud] [--menubar] [--api-port PORT] [--help]\n", program_name);
     printf("  --foreground  Terminalde calisir, loglari stdout/stderr'e yazar.\n");
     printf("  --once        Bir metrik paketi gonderip cikar.\n");
     printf("  --hud         Kucuk transparan health panelini gosterir.\n");
-    printf("  --menubar     macOS menubar uygulamasini baslatir.\n");
-    printf("  --api-port    Local REST/WebSocket API portu. Varsayilan: %d.\n", DEFAULT_API_PORT);
-    printf("  --db          SQLite veritabani yolu. Varsayilan: %s.\n", DEFAULT_DB_PATH);
-    printf("  --export      Diagnostik raporu yazip cikar.\n");
+    printf("  --menubar     macOS menubar uygulamasini baslatir (canli health score).\n");
+    printf("  --api-port    Local REST/SSE API portu. Varsayilan: %d.\n", DEFAULT_API_PORT);
     printf("  --help        Bu yardimi gosterir.\n");
 }
 
@@ -102,8 +100,6 @@ int main(int argc, char *argv[]) {
     int hud = 0;
     int menubar = 0;
     int api_port = DEFAULT_API_PORT;
-    const char *db_path = DEFAULT_DB_PATH;
-    const char *export_path = NULL;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--foreground") == 0) {
@@ -120,12 +116,6 @@ int main(int argc, char *argv[]) {
             foreground = 1;
         } else if (strcmp(argv[i], "--api-port") == 0 && i + 1 < argc) {
             api_port = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "--db") == 0 && i + 1 < argc) {
-            db_path = argv[++i];
-        } else if (strcmp(argv[i], "--export") == 0 && i + 1 < argc) {
-            export_path = argv[++i];
-            once = 1;
-            foreground = 1;
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
@@ -160,19 +150,13 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    if (storage_open(db_path) < 0) {
-        return 1;
-    }
-
     if (api_server_start(api_port) < 0) {
-        storage_close();
         return 1;
     }
 
     sock_fd = init_socket();
     if (sock_fd < 0) {
         api_server_stop();
-        storage_close();
         return 1;
     }
 
@@ -181,17 +165,11 @@ int main(int argc, char *argv[]) {
         collect_metrics(&snapshot.system);
         collect_process_snapshot(&snapshot.processes);
         snapshot.health_score = calculate_system_health_score(&snapshot.system, &snapshot.processes);
-        storage_save_snapshot(&snapshot);
         api_server_publish(&snapshot);
-
-        if (export_path) {
-            storage_export_report(export_path, &snapshot);
-        }
 
         if (send_metrics(sock_fd, &snapshot.system) < 0 && once) {
             close(sock_fd);
             api_server_stop();
-            storage_close();
             return 1;
         }
 
@@ -202,6 +180,5 @@ int main(int argc, char *argv[]) {
 
     close(sock_fd);
     api_server_stop();
-    storage_close();
     return 0;
 }

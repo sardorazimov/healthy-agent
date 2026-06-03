@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O3 -Iinclude
-LDFLAGS = -framework Cocoa -lsqlite3 -lpthread
+LDFLAGS = -framework Cocoa -lpthread
 SRC_DIR = src
 BUILD_DIR = build
 BIN_DIR = bin

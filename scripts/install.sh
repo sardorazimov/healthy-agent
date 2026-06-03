@@ -29,7 +29,7 @@ cat > "$PLIST_PATH" <<PLIST
     <key>ProgramArguments</key>
     <array>
         <string>$INSTALL_BIN</string>
-        <string>--foreground</string>
+        <string>--menubar</string>
     </array>
     <key>RunAtLoad</key>
     <true/>

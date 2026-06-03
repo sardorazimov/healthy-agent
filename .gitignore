@@ -22,6 +22,4 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
-ui
-migrations
 *.log
