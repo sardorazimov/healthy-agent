@@ -6,8 +6,11 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/file.h>
 #include <fcntl.h>
 #include <signal.h>
+
+#define MENUBAR_LOCK_PATH "/tmp/miransas-pulse.lock"
 
 static volatile sig_atomic_t keep_running = 1;
 
@@ -137,7 +140,29 @@ int main(int argc, char *argv[]) {
     }
 
     if (menubar) {
+        int lock_fd = open(MENUBAR_LOCK_PATH, O_RDWR | O_CREAT, 0644);
+        if (lock_fd < 0) {
+            fprintf(stderr, "[Miransas-Pulse] Kilit dosyasi acilamadi (%s): %s\n",
+                    MENUBAR_LOCK_PATH, strerror(errno));
+            return 1;
+        }
+        if (flock(lock_fd, LOCK_EX | LOCK_NB) < 0) {
+            fprintf(stderr, "[Miransas-Pulse] Miransas Pulse zaten calisiyor.\n");
+            close(lock_fd);
+            return 0;
+        }
+
+        if (api_server_start(api_port) < 0) {
+            fprintf(stderr, "[Miransas-Pulse] API server baslamadi (port %d kullanimda olabilir). "
+                            "Menubar API'sez devam ediyor.\n",
+                    api_port);
+        }
+
         show_menubar_app();
+
+        api_server_stop();
+        flock(lock_fd, LOCK_UN);
+        close(lock_fd);
         return 0;
     }
 

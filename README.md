@@ -99,6 +99,49 @@ HUD kisayolu:
 make hud
 ```
 
+## .app Bundle (opsiyonel)
+
+Menubar uygulamasini standart bir macOS `.app` paketi olarak uretmek icin:
+
+```bash
+make bundle
+```
+
+Bu komut `bin/Miransas Pulse.app` altinda standart bir `.app` bundle olusturur:
+
+- `Contents/MacOS/miransas_agent` — binary
+- `Contents/Info.plist` — `CFBundleIdentifier=com.miransas.pulse`, `LSUIElement=true` (dock'ta gorunmez, sadece menubar)
+- `Contents/Resources/AppIcon.icns` — varsa repo'daki `assets/AppIcon.icns` kopyalanir
+- ad-hoc `codesign -` ile imzalanir
+
+Bundle'i acmak:
+
+```bash
+open "bin/Miransas Pulse.app"
+```
+
+### Ozel ikon ekleme
+
+`assets/AppIcon.icns` dosyasini repo koku altinda olusturursan `make bundle` otomatik kopyalar.
+PNG'den `.icns` uretmek icin macOS yerlesik araclari:
+
+```bash
+mkdir -p AppIcon.iconset
+sips -z 16 16     icon.png --out AppIcon.iconset/icon_16x16.png
+sips -z 32 32     icon.png --out AppIcon.iconset/icon_16x16@2x.png
+sips -z 32 32     icon.png --out AppIcon.iconset/icon_32x32.png
+sips -z 64 64     icon.png --out AppIcon.iconset/icon_32x32@2x.png
+sips -z 128 128   icon.png --out AppIcon.iconset/icon_128x128.png
+sips -z 256 256   icon.png --out AppIcon.iconset/icon_128x128@2x.png
+sips -z 256 256   icon.png --out AppIcon.iconset/icon_256x256.png
+sips -z 512 512   icon.png --out AppIcon.iconset/icon_256x256@2x.png
+sips -z 512 512   icon.png --out AppIcon.iconset/icon_512x512.png
+sips -z 1024 1024 icon.png --out AppIcon.iconset/icon_512x512@2x.png
+iconutil -c icns AppIcon.iconset -o assets/AppIcon.icns
+```
+
+`make bundle`'i tekrar calistir.
+
 ## Local API
 
 `--foreground` modunda local HTTP API `127.0.0.1:9876` portunda dinler.
