@@ -1,19 +1,15 @@
 #include "agent.h"
+#import "detail_window.h"
+#import "history_ring.h"
 
 #include <errno.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mount.h>
+#include <sys/param.h>
 
 #import <Cocoa/Cocoa.h>
-
-static int compare_by_resident_desc(const void *a, const void *b) {
-    const process_metrics_t *pa = (const process_metrics_t *)a;
-    const process_metrics_t *pb = (const process_metrics_t *)b;
-    if (pb->resident_bytes > pa->resident_bytes) return 1;
-    if (pb->resident_bytes < pa->resident_bytes) return -1;
-    return 0;
-}
 
 @interface MiransasHudController : NSObject
 @property(nonatomic, strong) NSPanel *panel;
@@ -162,6 +158,8 @@ void show_health_hud(const agent_snapshot_t *snapshot) {
 @property(nonatomic, strong) NSTimer *timer;
 - (void)tick:(NSTimer *)timer;
 - (void)killProcess:(NSMenuItem *)sender;
+- (void)statusBarClicked:(id)sender;
+- (void)openDetailWindow:(id)sender;
 @end
 
 @implementation MiransasMenuController
@@ -176,8 +174,9 @@ void show_health_hud(const agent_snapshot_t *snapshot) {
 
     self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
     self.statusItem.button.title = @"♥ --";
-    self.statusItem.menu = [[NSMenu alloc] initWithTitle:@"Miransas Pulse"];
-    [self.statusItem.menu setAutoenablesItems:NO];
+    self.statusItem.button.target = self;
+    self.statusItem.button.action = @selector(statusBarClicked:);
+    [self.statusItem.button sendActionOn:(NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp)];
 
     // Warm-up: process.c per-pid CPU cache'ini doldur. İlk gerçek tick
     // INTERVAL_SEC sonra ateş edince delta hesaplanabilir.
@@ -192,6 +191,47 @@ void show_health_hud(const agent_snapshot_t *snapshot) {
     return self;
 }
 
+- (void)statusBarClicked:(id)sender {
+    (void)sender;
+    NSEvent *event = [NSApp currentEvent];
+    BOOL isRightClick = event && (event.type == NSEventTypeRightMouseUp ||
+                                  (event.type == NSEventTypeLeftMouseUp &&
+                                   (event.modifierFlags & NSEventModifierFlagControl) != 0));
+
+    if (isRightClick) {
+        NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Miransas Pulse"];
+        [menu setAutoenablesItems:NO];
+
+        NSMenuItem *open = [[NSMenuItem alloc] initWithTitle:@"Open Pulse"
+                                                       action:@selector(openDetailWindow:)
+                                                keyEquivalent:@""];
+        [open setTarget:self];
+        [open setEnabled:YES];
+        [menu addItem:open];
+
+        [menu addItem:[NSMenuItem separatorItem]];
+
+        NSMenuItem *quit = [[NSMenuItem alloc] initWithTitle:@"Quit Miransas Pulse"
+                                                       action:@selector(terminate:)
+                                                keyEquivalent:@"q"];
+        [quit setTarget:NSApp];
+        [quit setEnabled:YES];
+        [menu addItem:quit];
+
+        [NSMenu popUpContextMenu:menu withEvent:event forView:self.statusItem.button];
+    } else {
+        [self openDetailWindow:nil];
+    }
+}
+
+- (void)openDetailWindow:(id)sender {
+    (void)sender;
+    [[MiransasDetailWindow shared] show];
+    if (_snapshot.system.total_ram != 0 || _snapshot.health_score != 0) {
+        [[MiransasDetailWindow shared] updateWithSnapshot:&_snapshot];
+    }
+}
+
 - (void)tick:(NSTimer *)timer {
     (void)timer;
 
@@ -202,120 +242,28 @@ void show_health_hud(const agent_snapshot_t *snapshot) {
 
     self.statusItem.button.title = [NSString stringWithFormat:@"♥ %d", _snapshot.health_score];
 
-    NSMenu *menu = self.statusItem.menu;
-    [menu removeAllItems];
+    double cpu = _snapshot.system.cpu_usage;
+    if (cpu < 0.0) cpu = 0.0;
+    uint64_t total = _snapshot.system.total_ram;
+    uint64_t freev = _snapshot.system.free_ram;
+    double ramFrac = (total > 0) ? ((double)(total - freev) / (double)total) : 0.0;
 
-    NSColor *scoreColor;
-    if (_snapshot.health_score > 70) {
-        scoreColor = [NSColor systemGreenColor];
-    } else if (_snapshot.health_score >= 40) {
-        scoreColor = [NSColor systemOrangeColor];
-    } else {
-        scoreColor = [NSColor systemRedColor];
-    }
-
-    NSFont *menuFont = [NSFont menuBarFontOfSize:0];
-    NSString *scorePrefix = @"Score ";
-    NSString *scoreValue = [NSString stringWithFormat:@"%d", _snapshot.health_score];
-    NSString *sysSuffix = [NSString stringWithFormat:@"   CPU %.1f%%   RAM %llu/%llu MB",
-                           _snapshot.system.cpu_usage,
-                           (unsigned long long)_snapshot.system.free_ram,
-                           (unsigned long long)_snapshot.system.total_ram];
-
-    NSMutableAttributedString *sysAttr = [[NSMutableAttributedString alloc] init];
-    [sysAttr appendAttributedString:[[NSAttributedString alloc] initWithString:scorePrefix attributes:@{
-        NSForegroundColorAttributeName: [NSColor labelColor],
-        NSFontAttributeName: menuFont
-    }]];
-    [sysAttr appendAttributedString:[[NSAttributedString alloc] initWithString:scoreValue attributes:@{
-        NSForegroundColorAttributeName: scoreColor,
-        NSFontAttributeName: [NSFont systemFontOfSize:menuFont.pointSize weight:NSFontWeightSemibold]
-    }]];
-    [sysAttr appendAttributedString:[[NSAttributedString alloc] initWithString:sysSuffix attributes:@{
-        NSForegroundColorAttributeName: [NSColor labelColor],
-        NSFontAttributeName: menuFont
-    }]];
-
-    NSMenuItem *sysItem = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
-    [sysItem setAttributedTitle:sysAttr];
-    [sysItem setEnabled:YES];
-    [menu addItem:sysItem];
-
-    [menu addItem:[NSMenuItem separatorItem]];
-
-    NSDictionary *headerAttrs = @{
-        NSForegroundColorAttributeName: [NSColor systemOrangeColor],
-        NSFontAttributeName: [NSFont systemFontOfSize:[NSFont smallSystemFontSize] weight:NSFontWeightSemibold]
-    };
-    NSMenuItem *cpuHeader = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
-    [cpuHeader setAttributedTitle:[[NSAttributedString alloc] initWithString:@"— En cok CPU —"
-                                                                  attributes:headerAttrs]];
-    [cpuHeader setEnabled:NO];
-    [menu addItem:cpuHeader];
-
-    size_t topCount = _snapshot.processes.count < 5 ? _snapshot.processes.count : 5;
-    if (topCount == 0) {
-        NSMenuItem *empty = [[NSMenuItem alloc] initWithTitle:@"No process data yet" action:nil keyEquivalent:@""];
-        [empty setEnabled:NO];
-        [menu addItem:empty];
-    } else {
-        for (size_t i = 0; i < topCount; i++) {
-            const process_metrics_t *p = &_snapshot.processes.processes[i];
-            NSString *line = [NSString stringWithFormat:@"%s   CPU %.1f%%   RAM %.0f MB",
-                              p->name,
-                              p->cpu_percent,
-                              (double)p->resident_bytes / 1048576.0];
-            NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:line
-                                                          action:@selector(killProcess:)
-                                                   keyEquivalent:@""];
-            [item setTarget:self];
-            [item setTag:p->pid];
-            [item setRepresentedObject:[NSString stringWithUTF8String:p->name]];
-            [menu addItem:item];
+    double diskFrac = 0.0;
+    struct statfs s;
+    if (statfs("/", &s) == 0) {
+        uint64_t bsize = (uint64_t)s.f_bsize;
+        uint64_t totalBytes = (uint64_t)s.f_blocks * bsize;
+        uint64_t freeBytes  = (uint64_t)s.f_bavail * bsize;
+        if (totalBytes > 0) {
+            diskFrac = (double)(totalBytes - freeBytes) / (double)totalBytes;
         }
     }
 
-    [menu addItem:[NSMenuItem separatorItem]];
+    [[MiransasHistoryRing shared] appendCPU:cpu
+                                ramFraction:ramFrac
+                               diskFraction:diskFrac];
 
-    NSMenuItem *ramHeader = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
-    [ramHeader setAttributedTitle:[[NSAttributedString alloc] initWithString:@"— En cok RAM —"
-                                                                  attributes:headerAttrs]];
-    [ramHeader setEnabled:NO];
-    [menu addItem:ramHeader];
-
-    if (_snapshot.processes.count == 0) {
-        NSMenuItem *empty = [[NSMenuItem alloc] initWithTitle:@"No process data yet" action:nil keyEquivalent:@""];
-        [empty setEnabled:NO];
-        [menu addItem:empty];
-    } else {
-        process_metrics_t ramSorted[MAX_TRACKED_PROCESSES];
-        size_t ramCount = _snapshot.processes.count;
-        memcpy(ramSorted, _snapshot.processes.processes, ramCount * sizeof(process_metrics_t));
-        qsort(ramSorted, ramCount, sizeof(process_metrics_t), compare_by_resident_desc);
-
-        size_t ramTop = ramCount < 5 ? ramCount : 5;
-        for (size_t i = 0; i < ramTop; i++) {
-            const process_metrics_t *p = &ramSorted[i];
-            NSString *line = [NSString stringWithFormat:@"%s   RAM %.0f MB",
-                              p->name,
-                              (double)p->resident_bytes / 1048576.0];
-            NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:line
-                                                          action:@selector(killProcess:)
-                                                   keyEquivalent:@""];
-            [item setTarget:self];
-            [item setTag:p->pid];
-            [item setRepresentedObject:[NSString stringWithUTF8String:p->name]];
-            [menu addItem:item];
-        }
-    }
-
-    [menu addItem:[NSMenuItem separatorItem]];
-
-    NSMenuItem *quit = [[NSMenuItem alloc] initWithTitle:@"Quit Miransas Pulse"
-                                                  action:@selector(terminate:)
-                                           keyEquivalent:@"q"];
-    [quit setTarget:NSApp];
-    [menu addItem:quit];
+    [[MiransasDetailWindow shared] updateWithSnapshot:&_snapshot];
 }
 
 - (void)killProcess:(NSMenuItem *)sender {

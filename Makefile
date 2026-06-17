@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O3 -Iinclude
-LDFLAGS = -framework Cocoa -lpthread
+LDFLAGS = -framework Cocoa -framework IOKit -lpthread
 SRC_DIR = src
 BUILD_DIR = build
 BIN_DIR = bin
