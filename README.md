@@ -1,4 +1,4 @@
-# Miransas Pulse
+# Miransas Pulse Healthy-agent 
 
 Miransas Pulse, macOS icin hafif bir sistem ve uygulama sagligi izleme agent'idir. CPU/RAM metriklerini okur, process listesini izler, local SQLite'a yazar ve menubar'da canli health score gosterir. Ayrica local bir HTTP API (`/health`, `/metrics`, `/stream` SSE) sunar.
 

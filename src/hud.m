@@ -113,7 +113,7 @@ static int compare_by_resident_desc(const void *a, const void *b) {
     [label setDrawsBackground:NO];
     [label setEditable:NO];
     [label setSelectable:NO];
-    [label setTextColor:[[NSColor whiteColor] colorWithAlphaComponent:alpha]];
+    [label setTextColor:[[NSColor labelColor] colorWithAlphaComponent:alpha]];
     [label setFont:[NSFont systemFontOfSize:fontSize weight:weight]];
     return label;
 }
@@ -177,6 +177,7 @@ void show_health_hud(const agent_snapshot_t *snapshot) {
     self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
     self.statusItem.button.title = @"♥ --";
     self.statusItem.menu = [[NSMenu alloc] initWithTitle:@"Miransas Pulse"];
+    [self.statusItem.menu setAutoenablesItems:NO];
 
     // Warm-up: process.c per-pid CPU cache'ini doldur. İlk gerçek tick
     // INTERVAL_SEC sonra ateş edince delta hesaplanabilir.
@@ -205,7 +206,7 @@ void show_health_hud(const agent_snapshot_t *snapshot) {
     [menu removeAllItems];
 
     NSColor *scoreColor;
-    if (_snapshot.health_score >= 70) {
+    if (_snapshot.health_score > 70) {
         scoreColor = [NSColor systemGreenColor];
     } else if (_snapshot.health_score >= 40) {
         scoreColor = [NSColor systemOrangeColor];
@@ -213,27 +214,42 @@ void show_health_hud(const agent_snapshot_t *snapshot) {
         scoreColor = [NSColor systemRedColor];
     }
 
-    NSString *sysLine = [NSString stringWithFormat:@"Score %d   CPU %.1f%%   RAM %llu/%llu MB",
-                         _snapshot.health_score,
-                         _snapshot.system.cpu_usage,
-                         (unsigned long long)_snapshot.system.free_ram,
-                         (unsigned long long)_snapshot.system.total_ram];
-    NSDictionary *sysAttrs = @{
+    NSFont *menuFont = [NSFont menuBarFontOfSize:0];
+    NSString *scorePrefix = @"Score ";
+    NSString *scoreValue = [NSString stringWithFormat:@"%d", _snapshot.health_score];
+    NSString *sysSuffix = [NSString stringWithFormat:@"   CPU %.1f%%   RAM %llu/%llu MB",
+                           _snapshot.system.cpu_usage,
+                           (unsigned long long)_snapshot.system.free_ram,
+                           (unsigned long long)_snapshot.system.total_ram];
+
+    NSMutableAttributedString *sysAttr = [[NSMutableAttributedString alloc] init];
+    [sysAttr appendAttributedString:[[NSAttributedString alloc] initWithString:scorePrefix attributes:@{
+        NSForegroundColorAttributeName: [NSColor labelColor],
+        NSFontAttributeName: menuFont
+    }]];
+    [sysAttr appendAttributedString:[[NSAttributedString alloc] initWithString:scoreValue attributes:@{
         NSForegroundColorAttributeName: scoreColor,
-        NSFontAttributeName: [NSFont menuBarFontOfSize:0]
-    };
-    NSAttributedString *sysAttr = [[NSAttributedString alloc] initWithString:sysLine
-                                                                  attributes:sysAttrs];
+        NSFontAttributeName: [NSFont systemFontOfSize:menuFont.pointSize weight:NSFontWeightSemibold]
+    }]];
+    [sysAttr appendAttributedString:[[NSAttributedString alloc] initWithString:sysSuffix attributes:@{
+        NSForegroundColorAttributeName: [NSColor labelColor],
+        NSFontAttributeName: menuFont
+    }]];
+
     NSMenuItem *sysItem = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
     [sysItem setAttributedTitle:sysAttr];
-    [sysItem setEnabled:NO];
+    [sysItem setEnabled:YES];
     [menu addItem:sysItem];
 
     [menu addItem:[NSMenuItem separatorItem]];
 
-    NSMenuItem *cpuHeader = [[NSMenuItem alloc] initWithTitle:@"— En cok CPU —"
-                                                       action:nil
-                                                keyEquivalent:@""];
+    NSDictionary *headerAttrs = @{
+        NSForegroundColorAttributeName: [NSColor systemOrangeColor],
+        NSFontAttributeName: [NSFont systemFontOfSize:[NSFont smallSystemFontSize] weight:NSFontWeightSemibold]
+    };
+    NSMenuItem *cpuHeader = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
+    [cpuHeader setAttributedTitle:[[NSAttributedString alloc] initWithString:@"— En cok CPU —"
+                                                                  attributes:headerAttrs]];
     [cpuHeader setEnabled:NO];
     [menu addItem:cpuHeader];
 
@@ -261,9 +277,9 @@ void show_health_hud(const agent_snapshot_t *snapshot) {
 
     [menu addItem:[NSMenuItem separatorItem]];
 
-    NSMenuItem *ramHeader = [[NSMenuItem alloc] initWithTitle:@"— En cok RAM —"
-                                                       action:nil
-                                                keyEquivalent:@""];
+    NSMenuItem *ramHeader = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
+    [ramHeader setAttributedTitle:[[NSAttributedString alloc] initWithString:@"— En cok RAM —"
+                                                                  attributes:headerAttrs]];
     [ramHeader setEnabled:NO];
     [menu addItem:ramHeader];
 
