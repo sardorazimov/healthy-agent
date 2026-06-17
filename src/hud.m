@@ -1,6 +1,7 @@
 #include "agent.h"
 #import "detail_window.h"
 #import "history_ring.h"
+#import "tab_network.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -262,6 +263,8 @@ void show_health_hud(const agent_snapshot_t *snapshot) {
     [[MiransasHistoryRing shared] appendCPU:cpu
                                 ramFraction:ramFrac
                                diskFraction:diskFrac];
+
+    [[MiransasNetworkSampler shared] sample];
 
     [[MiransasDetailWindow shared] updateWithSnapshot:&_snapshot];
 }

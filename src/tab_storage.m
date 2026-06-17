@@ -255,8 +255,8 @@ static NSString *format_bytes(uint64_t bytes) {
     [_noteField setEditable:NO];
     [_noteField setSelectable:NO];
     [_noteField setStringValue:
-        @"Sizes are top-level only (no recursive enumeration). "
-        @"Bundles and nested subfolders roll up into Other."];
+        @"Top-level sizes only (no recursive scan). System is derived from "
+        @"system roots; Other is the unaccounted remainder. Refreshed every 60s."];
     [_noteField setFont:[NSFont systemFontOfSize:10.0 weight:NSFontWeightRegular]];
     [_noteField setTextColor:[NSColor tertiaryLabelColor]];
     [_noteField setLineBreakMode:NSLineBreakByWordWrapping];
@@ -331,13 +331,19 @@ static NSString *format_bytes(uint64_t bytes) {
     }
     uint64_t used = (total > freev) ? (total - freev) : 0;
 
-    uint64_t appsB     = top_level_size(@"/Applications");
-    uint64_t docsB     = top_level_size(home_subpath(@"Documents"));
-    uint64_t cachesB   = top_level_size(home_subpath(@"Library/Caches"));
-    uint64_t dlB       = top_level_size(home_subpath(@"Downloads"));
-    uint64_t picsB     = top_level_size(home_subpath(@"Pictures"));
-    uint64_t accounted = appsB + docsB + cachesB + dlB + picsB;
-    uint64_t otherB    = (used > accounted) ? (used - accounted) : 0;
+    uint64_t appsB    = top_level_size(@"/Applications");
+    uint64_t docsB    = top_level_size(home_subpath(@"Documents"));
+    uint64_t cachesB  = top_level_size(home_subpath(@"Library/Caches"));
+    uint64_t dlB      = top_level_size(home_subpath(@"Downloads"));
+    uint64_t picsB    = top_level_size(home_subpath(@"Pictures"));
+
+    uint64_t systemB  = top_level_size(@"/System")
+                      + top_level_size(@"/Library")
+                      + top_level_size(@"/private")
+                      + top_level_size(@"/usr");
+
+    uint64_t namedB   = appsB + docsB + cachesB + dlB + picsB + systemB;
+    uint64_t otherB   = (used > namedB) ? (used - namedB) : 0;
 
     NSMutableArray<MiransasStorageCategory *> *cats = [NSMutableArray array];
 
@@ -353,12 +359,13 @@ static NSString *format_bytes(uint64_t bytes) {
         [c release];
     };
 
-    add(@"Applications",      @"app.fill",                [NSColor systemBlueColor],   appsB);
-    add(@"Documents",         @"doc.fill",                [NSColor systemPurpleColor], docsB);
-    add(@"Caches",            @"internaldrive.fill",      [NSColor systemTealColor],   cachesB);
-    add(@"Downloads",         @"arrow.down.circle.fill",  [NSColor systemIndigoColor], dlB);
-    add(@"Photos",            @"photo.fill",              [NSColor systemPinkColor],   picsB);
-    add(@"Other (incl. System)", @"questionmark.folder",  [NSColor systemGrayColor],   otherB);
+    add(@"Applications", @"app.fill",                  [NSColor systemBlueColor],   appsB);
+    add(@"Documents",    @"doc.fill",                  [NSColor systemPurpleColor], docsB);
+    add(@"Caches",       @"internaldrive.fill",        [NSColor systemTealColor],   cachesB);
+    add(@"Downloads",    @"arrow.down.circle.fill",    [NSColor systemIndigoColor], dlB);
+    add(@"Photos",       @"photo.fill",                [NSColor systemPinkColor],   picsB);
+    add(@"System",       @"gearshape.2.fill",          [NSColor systemYellowColor], systemB);
+    add(@"Other",        @"questionmark.folder.fill",  [NSColor systemGrayColor],   otherB);
 
     [_cachedCategories release];
     _cachedCategories = [cats retain];

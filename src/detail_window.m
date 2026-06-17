@@ -2,6 +2,8 @@
 #import "tab_overview.h"
 #import "tab_processes.h"
 #import "tab_history.h"
+#import "tab_storage.h"
+#import "tab_network.h"
 
 #pragma mark - Sidebar row
 
@@ -142,6 +144,10 @@
         view = [[MiransasProcessesTab alloc] initWithFrame:bounds];
     } else if (index == 2) {
         view = [[MiransasHistoryTab alloc] initWithFrame:bounds];
+    } else if (index == 3) {
+        view = [[MiransasStorageTab alloc] initWithFrame:bounds];
+    } else if (index == 4) {
+        view = [[MiransasNetworkTab alloc] initWithFrame:bounds];
     } else {
         view = [[NSView alloc] initWithFrame:bounds];
         NSTextField *label = [[NSTextField alloc] init];
@@ -267,10 +273,15 @@
     NSButton *quit = [NSButton buttonWithTitle:@"Quit"
                                         target:NSApp
                                         action:@selector(terminate:)];
-    [quit setBezelStyle:NSBezelStyleTexturedRounded];
-    NSRect quitFrame = NSMakeRect(header.frame.size.width - 72.0,
-                                  (headerHeight - 22.0) / 2.0,
-                                  60.0, 22.0);
+    [quit setButtonType:NSButtonTypeMomentaryPushIn];
+    [quit setBezelStyle:NSBezelStyleRounded];
+    [quit setControlSize:NSControlSizeRegular];
+    [quit setFont:[NSFont systemFontOfSize:13.0 weight:NSFontWeightRegular]];
+    CGFloat quitW = 68.0;
+    CGFloat quitH = 24.0;
+    NSRect quitFrame = NSMakeRect(header.frame.size.width - quitW - 12.0,
+                                  (headerHeight - quitH) / 2.0,
+                                  quitW, quitH);
     [quit setFrame:quitFrame];
     [quit setAutoresizingMask:NSViewMinXMargin];
     [header addSubview:quit];
