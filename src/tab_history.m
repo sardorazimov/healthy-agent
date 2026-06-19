@@ -1,5 +1,6 @@
 #import "tab_history.h"
 #import "history_ring.h"
+#import "ui_helpers.h"
 
 #pragma mark - Chart view
 
@@ -35,7 +36,7 @@
     [_titleField setEditable:NO];
     [_titleField setSelectable:NO];
     [_titleField setFont:[NSFont systemFontOfSize:11.0 weight:NSFontWeightSemibold]];
-    [_titleField setTextColor:[NSColor secondaryLabelColor]];
+    [_titleField setTextColor:[NSColor tertiaryLabelColor]];
     [self addSubview:_titleField];
 
     _statsField = [[NSTextField alloc] init];
@@ -213,6 +214,11 @@
     }
 }
 
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    [self setNeedsDisplay:YES];
+}
+
 @end
 
 #pragma mark - History tab
@@ -352,6 +358,12 @@
     free(disk);
     free(ts);
     free(buf);
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    m_set_layer_bg(self.layer, [NSColor windowBackgroundColor], self);
+    [self setNeedsDisplay:YES];
 }
 
 @end

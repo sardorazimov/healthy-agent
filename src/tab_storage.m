@@ -1,5 +1,6 @@
 #import "tab_storage.h"
 #import "cleanup.h"
+#import "ui_helpers.h"
 
 #include <sys/mount.h>
 #include <sys/param.h>
@@ -97,14 +98,34 @@ static NSString *format_bytes(uint64_t bytes) {
     if (_totalBytes == 0) return;
     NSRect b = self.bounds;
     CGFloat x = 0.0;
+    NSColor *separator = [[NSColor windowBackgroundColor]
+                          colorWithAlphaComponent:0.55];
+    BOOL drewPrevious = NO;
     for (MiransasStorageCategory *c in _categories) {
         CGFloat w = (CGFloat)((double)c.bytes / (double)_totalBytes) * b.size.width;
         if (w <= 0.0) continue;
+        // 1px separator before each segment after the first non-empty one,
+        // for visual clarity between adjacent fills.
+        if (drewPrevious) {
+            [separator setFill];
+            NSRectFill(NSMakeRect(x, 0.0, 1.0, b.size.height));
+            x += 1.0;
+            w -= 1.0;
+            if (w <= 0.0) continue;
+        }
         NSRect r = NSMakeRect(x, 0.0, w, b.size.height);
         [c.color setFill];
         NSRectFill(r);
         x += w;
+        drewPrevious = YES;
     }
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    m_set_layer_bg(self.layer,
+        [[NSColor labelColor] colorWithAlphaComponent:0.08], self);
+    [self setNeedsDisplay:YES];
 }
 
 @end
@@ -155,7 +176,7 @@ static NSString *format_bytes(uint64_t bytes) {
     [_size setSelectable:NO];
     [_size setAlignment:NSTextAlignmentRight];
     [_size setStringValue:format_bytes(category.bytes)];
-    [_size setFont:[NSFont monospacedDigitSystemFontOfSize:12.0
+    [_size setFont:[NSFont monospacedDigitSystemFontOfSize:13.0
                                                     weight:NSFontWeightRegular]];
     [_size setTextColor:[NSColor labelColor]];
     [self addSubview:_size];
@@ -284,7 +305,7 @@ static NSString *format_bytes(uint64_t bytes) {
     [_titleField setEditable:NO];
     [_titleField setSelectable:NO];
     [_titleField setStringValue:@"STORAGE"];
-    [_titleField setFont:[NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold]];
+    [_titleField setFont:[NSFont systemFontOfSize:11.0 weight:NSFontWeightSemibold]];
     [_titleField setTextColor:[NSColor systemOrangeColor]];
     [_content addSubview:_titleField];
 
@@ -294,7 +315,7 @@ static NSString *format_bytes(uint64_t bytes) {
     [_summaryField setEditable:NO];
     [_summaryField setSelectable:NO];
     [_summaryField setStringValue:@""];
-    [_summaryField setFont:[NSFont systemFontOfSize:12.0 weight:NSFontWeightRegular]];
+    [_summaryField setFont:[NSFont systemFontOfSize:13.0 weight:NSFontWeightRegular]];
     [_summaryField setTextColor:[NSColor secondaryLabelColor]];
     [_content addSubview:_summaryField];
 
@@ -309,7 +330,7 @@ static NSString *format_bytes(uint64_t bytes) {
     [_noteField setStringValue:
         @"Top-level sizes only (no recursive scan). System is derived from "
         @"system roots; Other is the unaccounted remainder. Refreshed every 60s."];
-    [_noteField setFont:[NSFont systemFontOfSize:10.0 weight:NSFontWeightRegular]];
+    [_noteField setFont:[NSFont systemFontOfSize:11.0 weight:NSFontWeightRegular]];
     [_noteField setTextColor:[NSColor tertiaryLabelColor]];
     [_noteField setLineBreakMode:NSLineBreakByWordWrapping];
     [[_noteField cell] setWraps:YES];
@@ -324,7 +345,7 @@ static NSString *format_bytes(uint64_t bytes) {
     [_cleanupHeader setEditable:NO];
     [_cleanupHeader setSelectable:NO];
     [_cleanupHeader setStringValue:@"CLEANUP"];
-    [_cleanupHeader setFont:[NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold]];
+    [_cleanupHeader setFont:[NSFont systemFontOfSize:11.0 weight:NSFontWeightSemibold]];
     [_cleanupHeader setTextColor:[NSColor systemOrangeColor]];
     [_content addSubview:_cleanupHeader];
 
@@ -335,6 +356,7 @@ static NSString *format_bytes(uint64_t bytes) {
           actionTitle:@"Review & Clean →"];
     [_cachesCard setStatsText:@"Scanning…"];
     [_cachesCard setActionEnabled:NO];
+    [_cachesCard setActionPrimary:YES];
     __unsafe_unretained MiransasStorageTab *weakSelf = self;
     _cachesCard.onAction = ^{ [weakSelf openCachesReview]; };
     [_content addSubview:_cachesCard];
@@ -346,6 +368,7 @@ static NSString *format_bytes(uint64_t bytes) {
           actionTitle:@"Review & Clean →"];
     [_downloadsCard setStatsText:@"Scanning…"];
     [_downloadsCard setActionEnabled:NO];
+    [_downloadsCard setActionPrimary:YES];
     _downloadsCard.onAction = ^{ [weakSelf openDownloadsReview]; };
     [_content addSubview:_downloadsCard];
 
@@ -356,6 +379,7 @@ static NSString *format_bytes(uint64_t bytes) {
           actionTitle:@"Scan now"];
     [_largeFilesCard setStatsText:@"Not scanned yet"];
     [_largeFilesCard setActionEnabled:YES];
+    [_largeFilesCard setActionPrimary:NO];
     _largeFilesCard.onAction = ^{ [weakSelf largeFilesAction]; };
     [_content addSubview:_largeFilesCard];
 
@@ -366,6 +390,7 @@ static NSString *format_bytes(uint64_t bytes) {
           actionTitle:@"Scan now"];
     [_staleArtifactsCard setStatsText:@"Not scanned yet"];
     [_staleArtifactsCard setActionEnabled:YES];
+    [_staleArtifactsCard setActionPrimary:NO];
     _staleArtifactsCard.onAction = ^{ [weakSelf staleArtifactsAction]; };
     [_content addSubview:_staleArtifactsCard];
 
@@ -409,7 +434,7 @@ static NSString *format_bytes(uint64_t bytes) {
     CGFloat titleH = 16.0;
     CGFloat barH = 22.0;
     CGFloat summaryH = 16.0;
-    CGFloat noteH = 28.0;
+    CGFloat noteH = 32.0;
     CGFloat rowH = 30.0;
     CGFloat rowGap = 2.0;
     CGFloat headerH = 16.0;
@@ -438,7 +463,7 @@ static NSString *format_bytes(uint64_t bytes) {
         row.frame = NSMakeRect(0.0, ry, innerW, rowH);
         ry += rowH + rowGap;
     }
-    y += listH + 24.0;
+    y += listH + 32.0;
 
     _cleanupHeader.frame = NSMakeRect(pad, y, innerW, headerH);
     y += headerH + 8.0;
@@ -504,10 +529,10 @@ static NSString *format_bytes(uint64_t bytes) {
     };
 
     add(@"Applications", @"app.fill",                  [NSColor systemBlueColor],   appsB);
-    add(@"Documents",    @"doc.fill",                  [NSColor systemPurpleColor], docsB);
+    add(@"Documents",    @"doc.fill",                  [NSColor systemPinkColor],   docsB);
     add(@"Caches",       @"internaldrive.fill",        [NSColor systemTealColor],   cachesB);
-    add(@"Downloads",    @"arrow.down.circle.fill",    [NSColor systemIndigoColor], dlB);
-    add(@"Photos",       @"photo.fill",                [NSColor systemPinkColor],   picsB);
+    add(@"Downloads",    @"arrow.down.circle.fill",    [NSColor systemPurpleColor], dlB);
+    add(@"Photos",       @"photo.fill",                [NSColor systemRedColor],    picsB);
     add(@"System",       @"gearshape.2.fill",          [NSColor systemYellowColor], systemB);
     add(@"Other",        @"questionmark.folder.fill",  [NSColor systemGrayColor],   otherB);
 
@@ -654,12 +679,14 @@ static NSString *format_bytes(uint64_t bytes) {
 - (void)refreshDownloadsStats {
     if (!_downloadsScanLoaded) {
         [_downloadsCard setStatsText:@"Scanning…"];
+        [_downloadsCard setEmptyStateSymbol:nil];
         [_downloadsCard setActionEnabled:NO];
         [_downloadsCard setActionHidden:NO];
         return;
     }
     if (_downloadsEntryCount == 0) {
         [_downloadsCard setStatsText:@"Downloads folder is empty"];
+        [_downloadsCard setEmptyStateSymbol:@"tray"];
         [_downloadsCard setActionEnabled:NO];
         [_downloadsCard setActionHidden:YES];
         return;
@@ -669,6 +696,7 @@ static NSString *format_bytes(uint64_t bytes) {
                                    [MiransasCleanup formatBytes:_downloadsTotalBytes],
                                    (unsigned long)_downloadsEntryCount,
                                    _downloadsEntryCount == 1 ? "" : "s"]];
+    [_downloadsCard setEmptyStateSymbol:nil];
     [_downloadsCard setActionEnabled:YES];
     [_downloadsCard setActionHidden:NO];
 }
@@ -744,14 +772,18 @@ static NSString *format_bytes(uint64_t bytes) {
 - (void)refreshLargeFilesStats {
     if (!_largeFilesScanLoaded) {
         [_largeFilesCard setStatsText:@"Not scanned yet"];
+        [_largeFilesCard setEmptyStateSymbol:@"magnifyingglass.circle"];
         [_largeFilesCard setActionTitle:@"Scan now"];
+        [_largeFilesCard setActionPrimary:NO];
         [_largeFilesCard setActionEnabled:YES];
         [_largeFilesCard setActionHidden:NO];
         return;
     }
     [_largeFilesCard setActionTitle:@"Review & Clean →"];
+    [_largeFilesCard setActionPrimary:YES];
     if (_largeFilesEntryCount == 0) {
         [_largeFilesCard setStatsText:@"No files over 100 MB found"];
+        [_largeFilesCard setEmptyStateSymbol:@"magnifyingglass.circle"];
         [_largeFilesCard setActionEnabled:NO];
         [_largeFilesCard setActionHidden:YES];
         return;
@@ -761,6 +793,7 @@ static NSString *format_bytes(uint64_t bytes) {
                                    [MiransasCleanup formatBytes:_largeFilesTotalBytes],
                                    (unsigned long)_largeFilesEntryCount,
                                    _largeFilesEntryCount == 1 ? "" : "s"]];
+    [_largeFilesCard setEmptyStateSymbol:nil];
     [_largeFilesCard setActionEnabled:YES];
     [_largeFilesCard setActionHidden:NO];
 }
@@ -851,14 +884,17 @@ static NSString *format_bytes(uint64_t bytes) {
 - (void)refreshStaleArtifactsStats {
     if (!_staleArtifactsScanLoaded) {
         [_staleArtifactsCard setStatsText:@"Not scanned yet"];
+        [_staleArtifactsCard setEmptyStateSymbol:@"folder.badge.questionmark"];
         [_staleArtifactsCard setActionTitle:@"Scan now"];
         [_staleArtifactsCard setActionEnabled:YES];
         [_staleArtifactsCard setActionHidden:NO];
         return;
     }
     [_staleArtifactsCard setActionTitle:@"Review & Clean →"];
+    [_staleArtifactsCard setActionPrimary:YES];
     if (_staleArtifactsEntryCount == 0) {
         [_staleArtifactsCard setStatsText:@"No stale artifacts found"];
+        [_staleArtifactsCard setEmptyStateSymbol:@"folder.badge.questionmark"];
         [_staleArtifactsCard setActionEnabled:NO];
         [_staleArtifactsCard setActionHidden:YES];
         return;
@@ -868,6 +904,7 @@ static NSString *format_bytes(uint64_t bytes) {
                                    [MiransasCleanup formatBytes:_staleArtifactsTotalBytes],
                                    (unsigned long)_staleArtifactsEntryCount,
                                    _staleArtifactsEntryCount == 1 ? "" : "s"]];
+    [_staleArtifactsCard setEmptyStateSymbol:nil];
     [_staleArtifactsCard setActionEnabled:YES];
     [_staleArtifactsCard setActionHidden:NO];
 }
@@ -901,6 +938,12 @@ static NSString *format_bytes(uint64_t bytes) {
         [holder release];
         holder = nil;
     }];
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    m_set_layer_bg(self.layer, [NSColor windowBackgroundColor], self);
+    [self setNeedsDisplay:YES];
 }
 
 @end

@@ -63,9 +63,17 @@
                   description:(NSString *)description
                   actionTitle:(NSString *)actionTitle;
 - (void)setStatsText:(NSString *)text;
+// Show an SF Symbol stacked above the stats text — empty / "not scanned"
+// states. Card hides its description and centers the icon+text block in
+// the body. Pass nil to revert to the standard horizontal layout.
+- (void)setEmptyStateSymbol:(NSString *)symbolName;
 - (void)setActionEnabled:(BOOL)enabled;
 - (void)setActionHidden:(BOOL)hidden;
 - (void)setActionTitle:(NSString *)title;
+// Tints the action button's bezel with the system accent color. Use for
+// the primary "Review & Clean →" call to action. Default is NO (neutral
+// secondary chrome, like the header Quit button).
+- (void)setActionPrimary:(BOOL)primary;
 - (void)setScanning:(BOOL)scanning;
 @end
 

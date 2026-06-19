@@ -1,9 +1,73 @@
 #import "detail_window.h"
+#import <QuartzCore/QuartzCore.h>
+#import "ui_helpers.h"
 #import "tab_overview.h"
 #import "tab_processes.h"
 #import "tab_history.h"
 #import "tab_storage.h"
 #import "tab_network.h"
+
+#pragma mark - Themed background view
+
+@interface MiransasThemedBackgroundView : NSView
+@end
+@implementation MiransasThemedBackgroundView
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    if (self.wantsLayer) {
+        m_set_layer_bg(self.layer, [NSColor windowBackgroundColor], self);
+    }
+    [self setNeedsDisplay:YES];
+}
+@end
+
+#pragma mark - Header view (themed background + bottom separator)
+
+@interface MiransasHeaderView : MiransasThemedBackgroundView
+@end
+@implementation MiransasHeaderView {
+    CALayer *_bottomSeparator;
+}
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    self = [super initWithFrame:frameRect];
+    if (!self) return nil;
+    self.wantsLayer = YES;
+    _bottomSeparator = [[CALayer layer] retain];
+    _bottomSeparator.actions = @{
+        @"position":        [NSNull null],
+        @"bounds":          [NSNull null],
+        @"backgroundColor": [NSNull null],
+    };
+    [self.layer addSublayer:_bottomSeparator];
+    [self refreshSeparatorColor];
+    return self;
+}
+- (void)dealloc {
+    [_bottomSeparator release];
+    [super dealloc];
+}
+- (void)layout {
+    [super layout];
+    _bottomSeparator.frame = CGRectMake(0.0, 0.0, self.bounds.size.width, 1.0);
+}
+- (void)refreshSeparatorColor {
+    m_set_layer_bg(_bottomSeparator, [NSColor separatorColor], self);
+}
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    [self refreshSeparatorColor];
+}
+@end
+
+#pragma mark - Quit button
+
+@interface MiransasQuitButton : NSButton
+@end
+@implementation MiransasQuitButton
+- (void)resetCursorRects {
+    [self addCursorRect:self.bounds cursor:[NSCursor pointingHandCursor]];
+}
+@end
 
 #pragma mark - Sidebar row
 
@@ -17,6 +81,10 @@
 @implementation MiransasSidebarRow {
     NSTextField *_label;
     NSImageView *_iconView;
+    CALayer *_accentStripe;
+    NSTrackingArea *_trackingArea;
+    BOOL _hovered;
+    BOOL _pressed;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -25,6 +93,18 @@
 
     self.wantsLayer = YES;
     self.layer.cornerRadius = 6.0;
+    self.layer.masksToBounds = YES;
+
+    _accentStripe = [[CALayer layer] retain];
+    _accentStripe.frame = CGRectMake(0.0, 0.0, 3.0, frameRect.size.height);
+    _accentStripe.backgroundColor = [[NSColor systemBlueColor] CGColor];
+    _accentStripe.hidden = YES;
+    _accentStripe.actions = @{
+        @"hidden": [NSNull null],
+        @"position": [NSNull null],
+        @"bounds": [NSNull null],
+    };
+    [self.layer addSublayer:_accentStripe];
 
     CGFloat iconSize = 18.0;
     _iconView = [[NSImageView alloc] initWithFrame:NSMakeRect(12.0,
@@ -51,6 +131,15 @@
     return self;
 }
 
+- (void)dealloc {
+    [_accentStripe release];
+    if (_trackingArea) {
+        [self removeTrackingArea:_trackingArea];
+        [_trackingArea release];
+    }
+    [super dealloc];
+}
+
 - (void)setTitle:(NSString *)title {
     _title = [title copy];
     _label.stringValue = title ?: @"";
@@ -67,24 +156,104 @@
 
 - (void)setSelected:(BOOL)selected {
     _selected = selected;
-    if (selected) {
-        self.layer.backgroundColor = [[NSColor selectedContentBackgroundColor] CGColor];
+    [self updateAppearance];
+}
+
+- (void)updateAppearance {
+    if (_selected) {
+        m_set_layer_bg(self.layer,
+                       [NSColor selectedContentBackgroundColor], self);
         _label.textColor = [NSColor whiteColor];
         if (@available(macOS 11.0, *)) {
             _iconView.contentTintColor = [NSColor whiteColor];
         }
+        _accentStripe.hidden = NO;
+        m_with_view_appearance(self, ^{
+            _accentStripe.backgroundColor =
+                [NSColor systemBlueColor].CGColor;
+        });
     } else {
-        self.layer.backgroundColor = [[NSColor clearColor] CGColor];
+        CGFloat alpha = 0.0;
+        if (_pressed) alpha = 0.10;
+        else if (_hovered) alpha = 0.05;
+        if (alpha > 0.0) {
+            m_set_layer_bg(self.layer,
+                [[NSColor labelColor] colorWithAlphaComponent:alpha], self);
+        } else {
+            self.layer.backgroundColor = [[NSColor clearColor] CGColor];
+        }
         _label.textColor = [NSColor labelColor];
         if (@available(macOS 11.0, *)) {
             _iconView.contentTintColor = [NSColor labelColor];
         }
+        _accentStripe.hidden = YES;
     }
+}
+
+- (void)layout {
+    [super layout];
+    _accentStripe.frame = CGRectMake(0.0, 0.0, 3.0, self.bounds.size.height);
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    [self updateAppearance];
+}
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (_trackingArea) {
+        [self removeTrackingArea:_trackingArea];
+        [_trackingArea release];
+        _trackingArea = nil;
+    }
+    _trackingArea = [[NSTrackingArea alloc]
+        initWithRect:NSZeroRect
+             options:(NSTrackingMouseEnteredAndExited |
+                      NSTrackingActiveInActiveApp |
+                      NSTrackingInVisibleRect)
+               owner:self
+            userInfo:nil];
+    [self addTrackingArea:_trackingArea];
+}
+
+- (void)mouseEntered:(NSEvent *)event {
+    (void)event;
+    _hovered = YES;
+    [self updateAppearance];
+}
+
+- (void)mouseExited:(NSEvent *)event {
+    (void)event;
+    _hovered = NO;
+    _pressed = NO;
+    [self updateAppearance];
 }
 
 - (void)mouseDown:(NSEvent *)event {
     (void)event;
-    if (self.onClick) {
+    _pressed = YES;
+    [self updateAppearance];
+
+    NSWindow *win = self.window;
+    while (1) {
+        NSEvent *e = [win nextEventMatchingMask:
+            (NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged)];
+        if (!e) break;
+        NSPoint local = [self convertPoint:e.locationInWindow fromView:nil];
+        BOOL inside = NSPointInRect(local, self.bounds);
+        if (_pressed != inside) {
+            _pressed = inside;
+            [self updateAppearance];
+        }
+        if (e.type == NSEventTypeLeftMouseUp) break;
+    }
+
+    BOOL fire = _pressed;
+    _pressed = NO;
+    [self updateAppearance];
+
+    if (fire && self.onClick) {
         self.onClick();
     }
 }
@@ -180,8 +349,7 @@
     NSUInteger style = NSWindowStyleMaskTitled
                      | NSWindowStyleMaskClosable
                      | NSWindowStyleMaskMiniaturizable
-                     | NSWindowStyleMaskResizable
-                     | NSWindowStyleMaskFullSizeContentView;
+                     | NSWindowStyleMaskResizable;
 
     self.window = [[NSWindow alloc] initWithContentRect:frame
                                               styleMask:style
@@ -190,7 +358,6 @@
     [self.window setTitle:@"Miransas Pulse"];
     [self.window setTitlebarAppearsTransparent:YES];
     [self.window setTitleVisibility:NSWindowTitleHidden];
-    [self.window setMovableByWindowBackground:YES];
     [self.window setMinSize:NSMakeSize(600.0, 400.0)];
     [self.window setDelegate:self];
     [self.window setReleasedWhenClosed:NO];
@@ -239,7 +406,7 @@
         [self.sidebarRows addObject:row];
     }
 
-    self.contentArea = [[NSView alloc]
+    self.contentArea = [[MiransasThemedBackgroundView alloc]
         initWithFrame:NSMakeRect(sidebarWidth, 0.0,
                                  bounds.size.width - sidebarWidth,
                                  bounds.size.height - headerHeight)];
@@ -248,7 +415,7 @@
     self.contentArea.layer.backgroundColor = [[NSColor windowBackgroundColor] CGColor];
     [root addSubview:self.contentArea];
 
-    NSView *header = [[NSView alloc]
+    NSView *header = [[MiransasHeaderView alloc]
         initWithFrame:NSMakeRect(sidebarWidth,
                                  bounds.size.height - headerHeight,
                                  bounds.size.width - sidebarWidth,
@@ -270,13 +437,17 @@
     [self.headerTitle setAutoresizingMask:NSViewWidthSizable];
     [header addSubview:self.headerTitle];
 
-    NSButton *quit = [NSButton buttonWithTitle:@"Quit"
-                                        target:NSApp
-                                        action:@selector(terminate:)];
+    MiransasQuitButton *quit = [[[MiransasQuitButton alloc]
+        initWithFrame:NSZeroRect] autorelease];
+    [quit setTitle:@"Quit"];
+    [quit setTarget:NSApp];
+    [quit setAction:@selector(terminate:)];
     [quit setButtonType:NSButtonTypeMomentaryPushIn];
     [quit setBezelStyle:NSBezelStyleRounded];
+    [quit setBordered:YES];
     [quit setControlSize:NSControlSizeRegular];
     [quit setFont:[NSFont systemFontOfSize:13.0 weight:NSFontWeightRegular]];
+    [quit setAlphaValue:1.0];
     CGFloat quitW = 68.0;
     CGFloat quitH = 24.0;
     NSRect quitFrame = NSMakeRect(header.frame.size.width - quitW - 12.0,
@@ -293,16 +464,36 @@
 
 - (void)selectTab:(NSUInteger)index {
     if (index >= self.sidebarRows.count) return;
+    if (index == self.selectedIndex && self.currentTabView) return;
 
     self.selectedIndex = index;
     for (NSUInteger i = 0; i < self.sidebarRows.count; i++) {
         self.sidebarRows[i].selected = (i == index);
     }
 
-    [self.currentTabView removeFromSuperview];
-
     NSView *tab = [self tabViewForIndex:index];
     tab.frame = self.contentArea.bounds;
+
+    BOOL animate = (self.currentTabView != nil);
+    if (animate) {
+        BOOL reduceMotion = NO;
+        if (@available(macOS 10.12, *)) {
+            reduceMotion = [NSWorkspace sharedWorkspace]
+                .accessibilityDisplayShouldReduceMotion;
+        }
+        animate = !reduceMotion;
+    }
+
+    if (animate) {
+        CATransition *t = [CATransition animation];
+        t.type = kCATransitionFade;
+        t.duration = 0.2;
+        t.timingFunction = [CAMediaTimingFunction
+            functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+        [self.contentArea.layer addAnimation:t forKey:@"contentSwap"];
+    }
+
+    [self.currentTabView removeFromSuperview];
     self.currentTabView = tab;
     [self.contentArea addSubview:tab];
 

@@ -1,4 +1,5 @@
 #import "tab_processes.h"
+#import "ui_helpers.h"
 
 #pragma mark - Row wrapper
 
@@ -59,7 +60,7 @@ static NSTextField *section_label(NSString *text) {
     [f setEditable:NO];
     [f setSelectable:NO];
     [f setStringValue:text];
-    [f setFont:[NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold]];
+    [f setFont:[NSFont systemFontOfSize:11.0 weight:NSFontWeightSemibold]];
     [f setTextColor:[NSColor systemOrangeColor]];
     return f;
 }
@@ -292,6 +293,12 @@ static NSTextField *section_label(NSString *text) {
     } else {
         [tc setTextColor:[NSColor labelColor]];
     }
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    m_set_layer_bg(self.layer, [NSColor windowBackgroundColor], self);
+    [self setNeedsDisplay:YES];
 }
 
 @end

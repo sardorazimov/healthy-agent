@@ -1,4 +1,7 @@
 #import "cleanup.h"
+#import "ui_helpers.h"
+
+#import <QuartzCore/QuartzCore.h>
 
 #pragma mark - Entry
 
@@ -18,6 +21,28 @@
 @implementation MiransasFlippedView
 - (BOOL)isFlipped { return YES; }
 @end
+
+#pragma mark - Bezeled button with pointing-hand cursor
+
+@interface MiransasBezeledButton : NSButton
+@end
+@implementation MiransasBezeledButton
+- (void)resetCursorRects {
+    if (!self.isEnabled || self.isHidden) return;
+    [self addCursorRect:self.bounds cursor:[NSCursor pointingHandCursor]];
+}
+@end
+
+// Configures a button to look like the standard rounded macOS bezel button —
+// same chrome as the header Quit button.
+static void miransas_style_button(NSButton *b) {
+    [b setBordered:YES];
+    [b setButtonType:NSButtonTypeMomentaryPushIn];
+    [b setBezelStyle:NSBezelStyleRounded];
+    [b setControlSize:NSControlSizeRegular];
+    [b setFont:[NSFont systemFontOfSize:13.0 weight:NSFontWeightRegular]];
+    [b setAlphaValue:1.0];
+}
 
 #pragma mark - Helpers (MiransasCleanup)
 
@@ -690,9 +715,12 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
     NSImageView *_iconView;
     NSTextField *_titleField;
     NSTextField *_descField;
+    NSImageView *_emptyStateIcon;
     NSTextField *_statsField;
     NSButton *_actionButton;
     NSProgressIndicator *_spinner;
+    NSTrackingArea *_hoverArea;
+    BOOL _hovering;
 }
 
 - (instancetype)initWithTitle:(NSString *)title
@@ -702,9 +730,9 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
     self = [super initWithFrame:NSZeroRect];
     if (!self) return nil;
     self.wantsLayer = YES;
-    self.layer.cornerRadius = 10.0;
-    self.layer.backgroundColor =
-        [[[NSColor labelColor] colorWithAlphaComponent:0.05] CGColor];
+    self.layer.cornerRadius = 8.0;
+    self.layer.borderWidth = 1.0;
+    [self refreshChromeColors];
 
     _iconView = [[NSImageView alloc] init];
     [_iconView setImageScaling:NSImageScaleProportionallyUpOrDown];
@@ -720,7 +748,7 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
     [_titleField setDrawsBackground:NO];
     [_titleField setEditable:NO];
     [_titleField setSelectable:NO];
-    [_titleField setFont:[NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold]];
+    [_titleField setFont:[NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold]];
     [_titleField setTextColor:[NSColor labelColor]];
     [_titleField setStringValue:[title uppercaseString]];
     [self addSubview:_titleField];
@@ -730,28 +758,36 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
     [_descField setDrawsBackground:NO];
     [_descField setEditable:NO];
     [_descField setSelectable:NO];
-    [_descField setFont:[NSFont systemFontOfSize:11.0 weight:NSFontWeightRegular]];
+    [_descField setFont:[NSFont systemFontOfSize:13.0 weight:NSFontWeightRegular]];
     [_descField setTextColor:[NSColor secondaryLabelColor]];
     [_descField setStringValue:description ?: @""];
     [[_descField cell] setWraps:YES];
     [[_descField cell] setLineBreakMode:NSLineBreakByWordWrapping];
     [self addSubview:_descField];
 
+    _emptyStateIcon = [[NSImageView alloc] init];
+    [_emptyStateIcon setImageScaling:NSImageScaleProportionallyUpOrDown];
+    if (@available(macOS 11.0, *)) {
+        _emptyStateIcon.contentTintColor = [NSColor systemGrayColor];
+    }
+    [_emptyStateIcon setHidden:YES];
+    [self addSubview:_emptyStateIcon];
+
     _statsField = [[NSTextField alloc] init];
     [_statsField setBezeled:NO];
     [_statsField setDrawsBackground:NO];
     [_statsField setEditable:NO];
     [_statsField setSelectable:NO];
-    [_statsField setFont:[NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium]];
-    [_statsField setTextColor:[NSColor tertiaryLabelColor]];
+    [_statsField setFont:[NSFont systemFontOfSize:13.0 weight:NSFontWeightRegular]];
+    [_statsField setTextColor:[NSColor secondaryLabelColor]];
     [_statsField setStringValue:@"Scanning…"];
     [self addSubview:_statsField];
 
-    _actionButton = [NSButton buttonWithTitle:actionTitle
-                                       target:self
-                                       action:@selector(actionPressed:)];
-    [_actionButton setButtonType:NSButtonTypeMomentaryPushIn];
-    [_actionButton setBezelStyle:NSBezelStyleRounded];
+    _actionButton = [[MiransasBezeledButton alloc] initWithFrame:NSZeroRect];
+    [_actionButton setTitle:actionTitle ?: @""];
+    [_actionButton setTarget:self];
+    [_actionButton setAction:@selector(actionPressed:)];
+    miransas_style_button(_actionButton);
     [self addSubview:_actionButton];
 
     _spinner = [[NSProgressIndicator alloc] init];
@@ -764,8 +800,18 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
     return self;
 }
 
+- (void)refreshChromeColors {
+    NSColor *bg = [[NSColor labelColor] colorWithAlphaComponent:0.05];
+    NSColor *border = [NSColor separatorColor];
+    [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
+        self.layer.backgroundColor = bg.CGColor;
+        self.layer.borderColor     = border.CGColor;
+    }];
+}
+
 - (void)dealloc {
     [_onAction release];
+    [_hoverArea release];
     [super dealloc];
 }
 
@@ -776,6 +822,40 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
 
 - (void)setStatsText:(NSString *)text {
     [_statsField setStringValue:text ?: @""];
+}
+
+- (void)setEmptyStateSymbol:(NSString *)symbolName {
+    BOOL empty = symbolName.length > 0;
+    if (@available(macOS 11.0, *)) {
+        if (!empty) {
+            _emptyStateIcon.image = nil;
+            [_emptyStateIcon setHidden:YES];
+        } else {
+            // Configure the symbol at a large point size so contentTintColor
+            // is applied to a properly hinted vector glyph.
+            NSImage *img = [NSImage
+                imageWithSystemSymbolName:symbolName
+                 accessibilityDescription:nil];
+            NSImageSymbolConfiguration *cfg = [NSImageSymbolConfiguration
+                configurationWithPointSize:24.0
+                                    weight:NSFontWeightRegular];
+            _emptyStateIcon.image = [img imageWithSymbolConfiguration:cfg];
+            _emptyStateIcon.contentTintColor = [NSColor systemGrayColor];
+            [_emptyStateIcon setHidden:NO];
+        }
+    }
+    // Hide the description in the empty state — the icon + stats text
+    // becomes the entire body of the card.
+    [_descField setHidden:empty];
+    // Center the stats text under the icon when empty, left-align otherwise.
+    [_statsField setAlignment:empty ? NSTextAlignmentCenter
+                                    : NSTextAlignmentLeft];
+    [self setNeedsLayout:YES];
+}
+
+- (void)setActionPrimary:(BOOL)primary {
+    [_actionButton setBezelColor:primary ? [NSColor controlAccentColor]
+                                         : nil];
 }
 
 - (void)setActionEnabled:(BOOL)enabled {
@@ -790,6 +870,12 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
     [_actionButton setTitle:title ?: @""];
 }
 
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    [self refreshChromeColors];
+    [self setNeedsDisplay:YES];
+}
+
 - (void)setScanning:(BOOL)scanning {
     if (scanning) {
         [_actionButton setHidden:YES];
@@ -798,6 +884,51 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
         [_spinner stopAnimation:nil];
         [_actionButton setHidden:NO];
     }
+}
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (_hoverArea) {
+        [self removeTrackingArea:_hoverArea];
+        [_hoverArea release];
+        _hoverArea = nil;
+    }
+    NSTrackingAreaOptions opts = NSTrackingMouseEnteredAndExited
+                               | NSTrackingActiveInActiveApp
+                               | NSTrackingInVisibleRect;
+    _hoverArea = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+                                              options:opts
+                                                owner:self
+                                             userInfo:nil];
+    [self addTrackingArea:_hoverArea];
+}
+
+- (void)mouseEntered:(NSEvent *)event {
+    (void)event;
+    if (_hovering) return;
+    _hovering = YES;
+    [self applyHoverShadow:YES];
+}
+
+- (void)mouseExited:(NSEvent *)event {
+    (void)event;
+    if (!_hovering) return;
+    _hovering = NO;
+    [self applyHoverShadow:NO];
+}
+
+- (void)applyHoverShadow:(BOOL)on {
+    [CATransaction begin];
+    [CATransaction setAnimationDuration:0.15];
+    if (on) {
+        self.layer.shadowOffset = CGSizeMake(0.0, -2.0);
+        self.layer.shadowRadius = 4.0;
+        self.layer.shadowOpacity = 0.18f;
+        self.layer.shadowColor = [[NSColor blackColor] CGColor];
+    } else {
+        self.layer.shadowOpacity = 0.0f;
+    }
+    [CATransaction commit];
 }
 
 - (void)layout {
@@ -812,12 +943,9 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
                                  iconSide, iconSide);
 
     CGFloat titleX = pad + iconSide + 8.0;
-    CGFloat titleY = b.size.height - pad - 14.0;
+    CGFloat titleY = b.size.height - pad - 16.0;
     _titleField.frame = NSMakeRect(titleX, titleY,
-                                   b.size.width - titleX - pad, 14.0);
-
-    CGFloat descY = titleY - 6.0 - 32.0;
-    _descField.frame = NSMakeRect(pad, descY, b.size.width - 2 * pad, 32.0);
+                                   b.size.width - titleX - pad, 16.0);
 
     CGFloat btnX = b.size.width - pad - btnW;
     CGFloat btnY = pad;
@@ -828,8 +956,48 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
                                 btnY + (btnH - spinSize) / 2.0,
                                 spinSize, spinSize);
 
-    _statsField.frame = NSMakeRect(pad, btnY + (btnH - 16.0) / 2.0,
-                                   btnX - pad - 12.0, 16.0);
+    BOOL emptyState = !_emptyStateIcon.isHidden;
+    if (!emptyState) {
+        // Standard layout: description in the middle, stats text in the
+        // bottom row left-aligned, next to the action button.
+        CGFloat descY = titleY - 6.0 - 32.0;
+        _descField.frame = NSMakeRect(pad, descY,
+                                      b.size.width - 2 * pad, 32.0);
+        CGFloat statsY = btnY + (btnH - 17.0) / 2.0;
+        _statsField.frame = NSMakeRect(pad, statsY,
+                                       btnX - pad - 12.0, 17.0);
+        return;
+    }
+
+    // Empty state: vertical stack of [icon, gap, text], horizontally
+    // centered in the area to the left of the action button (or full width
+    // when the button is hidden) and vertically centered in the body area
+    // between the title and the bottom padding.
+    CGFloat iconSize = 24.0;
+    CGFloat gap = 8.0;
+    CGFloat textH = 17.0;
+    CGFloat stackH = iconSize + gap + textH;
+
+    CGFloat areaTop = titleY - 6.0;
+    CGFloat areaBottom = pad;
+    CGFloat areaH = areaTop - areaBottom;
+    CGFloat stackBottom = areaBottom + (areaH - stackH) / 2.0;
+    if (stackBottom < areaBottom) stackBottom = areaBottom;
+
+    CGFloat availLeft = pad;
+    CGFloat availRight = _actionButton.isHidden
+        ? (b.size.width - pad)
+        : (btnX - 12.0);
+    CGFloat availW = availRight - availLeft;
+    if (availW < iconSize) availW = iconSize;
+
+    CGFloat textY = stackBottom;
+    CGFloat iconY = textY + textH + gap;
+
+    _statsField.frame = NSMakeRect(availLeft, textY, availW, textH);
+    _emptyStateIcon.frame = NSMakeRect(
+        availLeft + (availW - iconSize) / 2.0,
+        iconY, iconSize, iconSize);
 }
 
 @end
@@ -933,11 +1101,12 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
 
     // Select all button
     y -= 8.0 + 24.0;
-    _selectAllButton = [NSButton buttonWithTitle:@"Select All"
-                                          target:self
-                                          action:@selector(toggleAll:)];
-    [_selectAllButton setBezelStyle:NSBezelStyleRounded];
-    [_selectAllButton setButtonType:NSButtonTypeMomentaryPushIn];
+    _selectAllButton = [[[MiransasBezeledButton alloc]
+                         initWithFrame:NSZeroRect] autorelease];
+    [_selectAllButton setTitle:@"Select All"];
+    [_selectAllButton setTarget:self];
+    [_selectAllButton setAction:@selector(toggleAll:)];
+    miransas_style_button(_selectAllButton);
     _selectAllButton.frame = NSMakeRect(pad, y, 110.0, 24.0);
     [_selectAllButton setAutoresizingMask:NSViewMaxXMargin | NSViewMinYMargin];
     [root addSubview:_selectAllButton];
@@ -968,8 +1137,8 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
 
     // Stats footer
     _statsField = [self makeLabel:@""
-                              size:12.0
-                            weight:NSFontWeightMedium
+                              size:13.0
+                            weight:NSFontWeightRegular
                              color:[NSColor labelColor]];
     _statsField.frame = NSMakeRect(pad, pad + 28.0,
                                    innerW - 260.0, 18.0);
@@ -982,21 +1151,28 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
     CGFloat cancelW = 90.0;
     CGFloat gap = 10.0;
 
-    _cancelButton = [NSButton buttonWithTitle:@"Cancel"
-                                       target:self
-                                       action:@selector(cancelPressed:)];
-    [_cancelButton setBezelStyle:NSBezelStyleRounded];
+    _cancelButton = [[[MiransasBezeledButton alloc]
+                      initWithFrame:NSZeroRect] autorelease];
+    [_cancelButton setTitle:@"Cancel"];
+    [_cancelButton setTarget:self];
+    [_cancelButton setAction:@selector(cancelPressed:)];
+    miransas_style_button(_cancelButton);
     [_cancelButton setKeyEquivalent:@"\e"];
     _cancelButton.frame = NSMakeRect(frame.size.width - pad - actionW - gap - cancelW,
                                      pad, cancelW, btnH);
     [_cancelButton setAutoresizingMask:NSViewMinXMargin | NSViewMaxYMargin];
     [root addSubview:_cancelButton];
 
-    _actionButton = [NSButton buttonWithTitle:@"Move Selected to Trash"
-                                       target:self
-                                       action:@selector(actionPressed:)];
-    [_actionButton setBezelStyle:NSBezelStyleRounded];
+    _actionButton = [[[MiransasBezeledButton alloc]
+                      initWithFrame:NSZeroRect] autorelease];
+    [_actionButton setTitle:@"Move Selected to Trash"];
+    [_actionButton setTarget:self];
+    [_actionButton setAction:@selector(actionPressed:)];
+    miransas_style_button(_actionButton);
     [_actionButton setKeyEquivalent:@"\r"];
+    // Primary action uses the system accent color — distinguishes the
+    // destructive confirm from Cancel/Select-All.
+    [_actionButton setBezelColor:[NSColor controlAccentColor]];
     _actionButton.frame = NSMakeRect(frame.size.width - pad - actionW,
                                      pad, actionW, btnH);
     [_actionButton setAutoresizingMask:NSViewMinXMargin | NSViewMaxYMargin];
@@ -1049,10 +1225,10 @@ static NSArray<MiransasCleanupEntry *> *scan_stale_artifacts(NSString *homePath,
         [row addSubview:name];
 
         NSTextField *detail = [self makeLabel:entry.detail
-                                         size:10.0
+                                         size:11.0
                                        weight:NSFontWeightRegular
-                                        color:[NSColor secondaryLabelColor]];
-        detail.frame = NSMakeRect(nameX, rowH / 2.0 - 13.0, nameW, 12.0);
+                                        color:[NSColor tertiaryLabelColor]];
+        detail.frame = NSMakeRect(nameX, rowH / 2.0 - 14.0, nameW, 13.0);
         [detail setAutoresizingMask:NSViewWidthSizable];
         [row addSubview:detail];
 

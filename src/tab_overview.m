@@ -1,4 +1,5 @@
 #import "tab_overview.h"
+#import "ui_helpers.h"
 
 #include <sys/mount.h>
 #include <sys/param.h>
@@ -6,6 +7,7 @@
 #import <IOKit/IOKitLib.h>
 #import <IOKit/ps/IOPowerSources.h>
 #import <IOKit/ps/IOPSKeys.h>
+#import <QuartzCore/QuartzCore.h>
 
 #pragma mark - Helpers
 
@@ -30,13 +32,32 @@ static NSColor *load_color(double fraction) {
 @implementation MiransasScoreGauge {
     NSTextField *_scoreField;
     NSTextField *_captionField;
+    CAShapeLayer *_bgRing;
+    CAShapeLayer *_fgArc;
+    CGFloat _currentFraction;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
     self = [super initWithFrame:frameRect];
     if (!self) return nil;
     _score = -1;
+    _currentFraction = 0.0;
     self.wantsLayer = YES;
+
+    // Ring layers go behind subviews. They're inserted into self.layer first
+    // so subview layers stack on top in subview-insertion order.
+    _bgRing = [CAShapeLayer layer];
+    _bgRing.fillColor = NULL;
+    _bgRing.lineWidth = 14.0;
+    [self.layer addSublayer:_bgRing];
+
+    _fgArc = [CAShapeLayer layer];
+    _fgArc.fillColor = NULL;
+    _fgArc.lineWidth = 14.0;
+    _fgArc.lineCap = kCALineCapRound;
+    _fgArc.strokeStart = 0.0;
+    _fgArc.strokeEnd = 0.0;
+    [self.layer addSublayer:_fgArc];
 
     _scoreField = [[NSTextField alloc] init];
     [_scoreField setBezeled:NO];
@@ -55,10 +76,12 @@ static NSColor *load_color(double fraction) {
     [_captionField setEditable:NO];
     [_captionField setSelectable:NO];
     [_captionField setAlignment:NSTextAlignmentCenter];
-    [_captionField setFont:[NSFont systemFontOfSize:10.0 weight:NSFontWeightSemibold]];
+    [_captionField setFont:[NSFont systemFontOfSize:11.0 weight:NSFontWeightSemibold]];
     [_captionField setStringValue:@"HEALTH SCORE"];
-    [_captionField setTextColor:[NSColor secondaryLabelColor]];
+    [_captionField setTextColor:[NSColor tertiaryLabelColor]];
     [self addSubview:_captionField];
+
+    [self updateRingColors];
 
     return self;
 }
@@ -76,9 +99,48 @@ static NSColor *load_color(double fraction) {
 
     _scoreField.frame = NSMakeRect(0.0, originY + captionH + gap, b.size.width, scoreH);
     _captionField.frame = NSMakeRect(0.0, originY, b.size.width, captionH);
+
+    [self rebuildRingPath];
+}
+
+- (void)rebuildRingPath {
+    NSRect b = self.bounds;
+    CGFloat side = MIN(b.size.width, b.size.height);
+    CGFloat lineWidth = 14.0;
+    CGFloat radius = side / 2.0 - lineWidth / 2.0 - 2.0;
+    if (radius <= 0.0) return;
+    CGPoint center = CGPointMake(NSMidX(b), NSMidY(b));
+
+    // Full-circle path starting at the top (π/2) and going clockwise in the
+    // view's y-up coordinate system. With strokeStart=0 and strokeEnd=f, the
+    // arc sweeps clockwise from 12 o'clock by f * 360°.
+    CGMutablePathRef path = CGPathCreateMutable();
+    CGPathAddArc(path, NULL, center.x, center.y, radius,
+                 M_PI_2, M_PI_2 - 2.0 * M_PI, true);
+
+    // Disable implicit animation on path/frame changes so layout resizes
+    // don't animate the geometry.
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _bgRing.frame = self.layer.bounds;
+    _fgArc.frame  = self.layer.bounds;
+    _bgRing.path  = path;
+    _fgArc.path   = path;
+    [CATransaction commit];
+    CGPathRelease(path);
+}
+
+- (void)updateRingColors {
+    NSColor *bg = [[NSColor labelColor] colorWithAlphaComponent:0.12];
+    NSColor *fg = (_score > 0) ? score_color(_score) : [NSColor systemGreenColor];
+    [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
+        _bgRing.strokeColor = bg.CGColor;
+        _fgArc.strokeColor  = fg.CGColor;
+    }];
 }
 
 - (void)setScore:(int)score {
+    int oldScore = _score;
     _score = score;
     if (score < 0) {
         [_scoreField setStringValue:@"--"];
@@ -87,39 +149,41 @@ static NSColor *load_color(double fraction) {
         [_scoreField setStringValue:[NSString stringWithFormat:@"%d", score]];
         [_scoreField setTextColor:score_color(score)];
     }
-    [self setNeedsDisplay:YES];
+
+    [self updateRingColors];
+
+    CGFloat newFraction = (score > 0)
+        ? ((CGFloat)MIN(MAX(score, 0), 100) / 100.0) : 0.0;
+    CGFloat oldFraction = _currentFraction;
+    _currentFraction = newFraction;
+
+    BOOL reduce = [[NSWorkspace sharedWorkspace]
+                   accessibilityDisplayShouldReduceMotion];
+    if (reduce || oldScore < 0 || newFraction == oldFraction) {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        _fgArc.strokeEnd = newFraction;
+        [CATransaction commit];
+        return;
+    }
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _fgArc.strokeEnd = newFraction;
+    [CATransaction commit];
+
+    CABasicAnimation *anim = [CABasicAnimation animationWithKeyPath:@"strokeEnd"];
+    anim.fromValue = @(oldFraction);
+    anim.toValue = @(newFraction);
+    anim.duration = 0.4;
+    anim.timingFunction = [CAMediaTimingFunction
+                           functionWithName:kCAMediaTimingFunctionEaseOut];
+    [_fgArc addAnimation:anim forKey:@"strokeEnd"];
 }
 
-- (void)drawRect:(NSRect)dirtyRect {
-    (void)dirtyRect;
-    NSRect r = self.bounds;
-    CGFloat side = MIN(r.size.width, r.size.height);
-    CGFloat lineWidth = 14.0;
-    CGFloat radius = side / 2.0 - lineWidth / 2.0 - 2.0;
-    if (radius <= 0.0) return;
-    NSPoint center = NSMakePoint(NSMidX(r), NSMidY(r));
-
-    NSBezierPath *bg = [NSBezierPath bezierPathWithOvalInRect:
-                        NSMakeRect(center.x - radius, center.y - radius,
-                                   radius * 2.0, radius * 2.0)];
-    [bg setLineWidth:lineWidth];
-    [[[NSColor labelColor] colorWithAlphaComponent:0.12] setStroke];
-    [bg stroke];
-
-    if (_score > 0) {
-        CGFloat fraction = (CGFloat)MIN(MAX(_score, 0), 100) / 100.0;
-        CGFloat sweep = 360.0 * fraction;
-        NSBezierPath *fg = [NSBezierPath bezierPath];
-        [fg appendBezierPathWithArcWithCenter:center
-                                       radius:radius
-                                   startAngle:90.0
-                                     endAngle:(90.0 - sweep)
-                                    clockwise:YES];
-        [fg setLineWidth:lineWidth];
-        [fg setLineCapStyle:NSLineCapStyleRound];
-        [score_color(_score) setStroke];
-        [fg stroke];
-    }
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    [self updateRingColors];
 }
 
 @end
@@ -149,7 +213,7 @@ static NSColor *load_color(double fraction) {
     [_labelField setDrawsBackground:NO];
     [_labelField setEditable:NO];
     [_labelField setSelectable:NO];
-    [_labelField setFont:[NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium]];
+    [_labelField setFont:[NSFont systemFontOfSize:13.0 weight:NSFontWeightRegular]];
     [_labelField setTextColor:[NSColor secondaryLabelColor]];
     [self addSubview:_labelField];
 
@@ -159,7 +223,7 @@ static NSColor *load_color(double fraction) {
     [_valueField setEditable:NO];
     [_valueField setSelectable:NO];
     [_valueField setAlignment:NSTextAlignmentRight];
-    [_valueField setFont:[NSFont monospacedDigitSystemFontOfSize:12.0
+    [_valueField setFont:[NSFont monospacedDigitSystemFontOfSize:13.0
                                                           weight:NSFontWeightRegular]];
     [_valueField setTextColor:[NSColor labelColor]];
     [self addSubview:_valueField];
@@ -212,6 +276,14 @@ static NSColor *load_color(double fraction) {
     _fraction = fraction;
     _barFill.layer.backgroundColor = [load_color(fraction) CGColor];
     [self setNeedsLayout:YES];
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    m_set_layer_bg(_barBg.layer,
+        [[NSColor labelColor] colorWithAlphaComponent:0.10], self);
+    m_set_layer_bg(_barFill.layer, load_color(_fraction), self);
+    [self setNeedsDisplay:YES];
 }
 
 @end
@@ -315,7 +387,7 @@ static NSTextField *card_label(NSView *parent, CGFloat size, NSFontWeight weight
     self.layer.backgroundColor = [[[NSColor labelColor] colorWithAlphaComponent:0.05] CGColor];
 
     _titleField   = card_label(self, 11.0, NSFontWeightSemibold,
-                               [NSColor secondaryLabelColor], NSTextAlignmentLeft);
+                               [NSColor tertiaryLabelColor],  NSTextAlignmentLeft);
     _percentField = card_label(self, 28.0, NSFontWeightBold,
                                [NSColor labelColor],          NSTextAlignmentLeft);
     _stateField   = card_label(self, 12.0, NSFontWeightRegular,
@@ -361,6 +433,13 @@ static NSTextField *card_label(NSView *parent, CGFloat size, NSFontWeight weight
     }
 }
 
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    m_set_layer_bg(self.layer,
+        [[NSColor labelColor] colorWithAlphaComponent:0.05], self);
+    [self setNeedsDisplay:YES];
+}
+
 @end
 
 #pragma mark - Thermal
@@ -384,7 +463,7 @@ static NSTextField *card_label(NSView *parent, CGFloat size, NSFontWeight weight
     self.layer.backgroundColor = [[[NSColor labelColor] colorWithAlphaComponent:0.05] CGColor];
 
     _titleField = card_label(self, 11.0, NSFontWeightSemibold,
-                             [NSColor secondaryLabelColor], NSTextAlignmentLeft);
+                             [NSColor tertiaryLabelColor],  NSTextAlignmentLeft);
     [_titleField setStringValue:@"THERMAL"];
 
     _badge = [[NSView alloc] init];
@@ -443,6 +522,14 @@ static NSTextField *card_label(NSView *parent, CGFloat size, NSFontWeight weight
     }
     [_badgeLabel setStringValue:text];
     _badge.layer.backgroundColor = [color CGColor];
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    m_set_layer_bg(self.layer,
+        [[NSColor labelColor] colorWithAlphaComponent:0.05], self);
+    [self refresh];
+    [self setNeedsDisplay:YES];
 }
 
 @end
@@ -556,6 +643,12 @@ static NSTextField *card_label(NSView *parent, CGFloat size, NSFontWeight weight
 
     [_battery refresh];
     [_thermal refresh];
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    m_set_layer_bg(self.layer, [NSColor windowBackgroundColor], self);
+    [self setNeedsDisplay:YES];
 }
 
 @end

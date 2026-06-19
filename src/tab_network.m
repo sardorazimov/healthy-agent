@@ -1,4 +1,5 @@
 #import "tab_network.h"
+#import "ui_helpers.h"
 
 #include <sys/socket.h>
 #include <sys/sysctl.h>
@@ -120,6 +121,95 @@ static NSColor *rssi_color(NSInteger rssi) {
     return [NSColor systemRedColor];
 }
 
+#pragma mark - Net label
+
+// NSTextField's cell caches the resolved CGColor of its textColor and is
+// not reliably invalidated when only the effective appearance changes
+// (re-assigning the same NSColor singleton is a no-op as far as the cell
+// is concerned). To guarantee labels follow the appearance toggle, this
+// view draws its own text in drawRect:, where AppKit sets
+// NSAppearance.currentAppearance to the view's effectiveAppearance and
+// NSColor resolves freshly every paint.
+@interface MiransasNetLabel : NSView
+@property(nonatomic, copy)   NSString *stringValue;
+@property(nonatomic, strong) NSColor  *textColor;
+@property(nonatomic, strong) NSFont   *font;
+@property(nonatomic, assign) NSTextAlignment alignment;
+@end
+
+@implementation MiransasNetLabel
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    self = [super initWithFrame:frameRect];
+    if (!self) return nil;
+    _alignment = NSTextAlignmentLeft;
+    return self;
+}
+
+- (void)dealloc {
+    [_stringValue release];
+    [_textColor release];
+    [_font release];
+    [super dealloc];
+}
+
+- (void)setStringValue:(NSString *)s {
+    if (s == _stringValue) return;
+    if (s && [_stringValue isEqualToString:s]) return;
+    [_stringValue release];
+    _stringValue = [s copy];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)setTextColor:(NSColor *)c {
+    [_textColor release];
+    _textColor = [c retain];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)setFont:(NSFont *)f {
+    [_font release];
+    _font = [f retain];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)setAlignment:(NSTextAlignment)a {
+    _alignment = a;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)drawRect:(NSRect)dirtyRect {
+    (void)dirtyRect;
+    if (_stringValue.length == 0) return;
+
+    NSMutableParagraphStyle *ps =
+        [[[NSMutableParagraphStyle alloc] init] autorelease];
+    ps.alignment = _alignment;
+    ps.lineBreakMode = NSLineBreakByTruncatingTail;
+
+    NSColor *color = _textColor ?: [NSColor labelColor];
+    NSFont  *font  = _font      ?: [NSFont systemFontOfSize:[NSFont systemFontSize]];
+    NSDictionary *attrs = @{
+        NSFontAttributeName: font,
+        NSForegroundColorAttributeName: color,
+        NSParagraphStyleAttributeName: ps,
+    };
+
+    NSSize sz = [_stringValue sizeWithAttributes:attrs];
+    NSRect b = self.bounds;
+    CGFloat y = (b.size.height - sz.height) / 2.0;
+    if (y < 0.0) y = 0.0;
+    [_stringValue drawInRect:NSMakeRect(0.0, y, b.size.width, sz.height)
+              withAttributes:attrs];
+}
+
+@end
+
 #pragma mark - Sampler
 
 @implementation MiransasNetworkSampler {
@@ -233,20 +323,22 @@ static NSColor *rssi_color(NSInteger rssi) {
 @end
 
 @implementation MiransasNetCard {
-    NSTextField *_titleField;
-    NSTextField *_rxArrow;
-    NSTextField *_rxValue;
-    NSTextField *_txArrow;
-    NSTextField *_txValue;
+    MiransasNetLabel *_titleField;
+    MiransasNetLabel *_rxArrow;
+    MiransasNetLabel *_rxValue;
+    MiransasNetLabel *_txArrow;
+    MiransasNetLabel *_txValue;
 }
 
-static NSTextField *net_label(NSView *parent, CGFloat size, NSFontWeight weight,
-                              NSColor *color, NSTextAlignment alignment) {
-    NSTextField *f = [[NSTextField alloc] init];
-    [f setBezeled:NO];
-    [f setDrawsBackground:NO];
-    [f setEditable:NO];
-    [f setSelectable:NO];
+// All NSTextField instances in this tab are replaced by MiransasNetLabel.
+// NSTextField caches the resolved CGColor in its cell and is not reliably
+// invalidated when only the effective appearance changes, which left these
+// labels invisible after a light/dark toggle. MiransasNetLabel resolves its
+// textColor at draw time under the view's effective appearance, so it
+// always tracks the current theme.
+static MiransasNetLabel *net_label(NSView *parent, CGFloat size, NSFontWeight weight,
+                                   NSColor *color, NSTextAlignment alignment) {
+    MiransasNetLabel *f = [[MiransasNetLabel alloc] initWithFrame:NSZeroRect];
     [f setAlignment:alignment];
     [f setFont:[NSFont systemFontOfSize:size weight:weight]];
     [f setTextColor:color];
@@ -262,7 +354,7 @@ static NSTextField *net_label(NSView *parent, CGFloat size, NSFontWeight weight,
     self.layer.backgroundColor = [[[NSColor labelColor] colorWithAlphaComponent:0.05] CGColor];
 
     _titleField = net_label(self, 11.0, NSFontWeightSemibold,
-                            [NSColor secondaryLabelColor], NSTextAlignmentLeft);
+                            [NSColor tertiaryLabelColor], NSTextAlignmentLeft);
 
     _rxArrow = net_label(self, 18.0, NSFontWeightSemibold,
                          [NSColor systemGreenColor], NSTextAlignmentCenter);
@@ -332,25 +424,34 @@ static NSTextField *net_label(NSView *parent, CGFloat size, NSFontWeight weight,
                                 b.size.width - pad * 2 - arrowW - 4.0, rowH);
 }
 
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    m_set_layer_bg(self.layer,
+        [[NSColor labelColor] colorWithAlphaComponent:0.05], self);
+    // MiransasNetLabel re-resolves its textColor at draw time; the
+    // children's own viewDidChangeEffectiveAppearance will redraw them.
+    [self setNeedsDisplay:YES];
+}
+
 @end
 
 #pragma mark - Tab
 
 @implementation MiransasNetworkTab {
-    NSTextField *_titleField;
+    MiransasNetLabel *_titleField;
 
     MiransasNetCard *_rateCard;
     MiransasNetCard *_totalsCard;
 
-    NSTextField *_ifaceHeader;
-    NSImageView *_ifaceIcon;
-    NSTextField *_ifaceName;
-    NSTextField *_ifaceIP;
+    MiransasNetLabel *_ifaceHeader;
+    NSImageView     *_ifaceIcon;
+    MiransasNetLabel *_ifaceName;
+    MiransasNetLabel *_ifaceIP;
 
-    NSTextField *_wifiHeader;
-    NSImageView *_wifiIcon;
-    NSTextField *_wifiSSIDField;
-    NSTextField *_wifiRSSIField;
+    MiransasNetLabel *_wifiHeader;
+    NSImageView     *_wifiIcon;
+    MiransasNetLabel *_wifiSSIDField;
+    MiransasNetLabel *_wifiRSSIField;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -359,8 +460,8 @@ static NSTextField *net_label(NSView *parent, CGFloat size, NSFontWeight weight,
     self.wantsLayer = YES;
     self.layer.backgroundColor = [[NSColor windowBackgroundColor] CGColor];
 
-    _titleField = net_label(self, 12.0, NSFontWeightSemibold,
-                            [NSColor systemTealColor], NSTextAlignmentLeft);
+    _titleField = net_label(self, 11.0, NSFontWeightSemibold,
+                            [NSColor systemOrangeColor], NSTextAlignmentLeft);
     [_titleField setStringValue:@"NETWORK"];
 
     _rateCard = [[MiransasNetCard alloc] initWithFrame:NSZeroRect];
@@ -376,7 +477,7 @@ static NSTextField *net_label(NSView *parent, CGFloat size, NSFontWeight weight,
     [self addSubview:_totalsCard];
 
     _ifaceHeader = net_label(self, 11.0, NSFontWeightSemibold,
-                             [NSColor secondaryLabelColor], NSTextAlignmentLeft);
+                             [NSColor tertiaryLabelColor], NSTextAlignmentLeft);
     [_ifaceHeader setStringValue:@"INTERFACE"];
 
     _ifaceIcon = [[NSImageView alloc] init];
@@ -399,7 +500,7 @@ static NSTextField *net_label(NSView *parent, CGFloat size, NSFontWeight weight,
     [_ifaceIP setStringValue:@""];
 
     _wifiHeader = net_label(self, 11.0, NSFontWeightSemibold,
-                            [NSColor secondaryLabelColor], NSTextAlignmentLeft);
+                            [NSColor tertiaryLabelColor], NSTextAlignmentLeft);
     [_wifiHeader setStringValue:@"WI-FI"];
 
     _wifiIcon = [[NSImageView alloc] init];
@@ -414,7 +515,7 @@ static NSTextField *net_label(NSView *parent, CGFloat size, NSFontWeight weight,
     _wifiSSIDField = net_label(self, 14.0, NSFontWeightMedium,
                                [NSColor labelColor], NSTextAlignmentLeft);
     [_wifiSSIDField setStringValue:@"—"];
-    [[_wifiSSIDField cell] setLineBreakMode:NSLineBreakByTruncatingTail];
+    // MiransasNetLabel truncates the tail by default in drawRect.
 
     _wifiRSSIField = net_label(self, 13.0, NSFontWeightRegular,
                                [NSColor secondaryLabelColor], NSTextAlignmentRight);
@@ -523,6 +624,16 @@ static NSTextField *net_label(NSView *parent, CGFloat size, NSFontWeight weight,
             _wifiRSSIField.textColor = rssi_color(rssi);
         }
     }
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    m_set_layer_bg(self.layer, [NSColor windowBackgroundColor], self);
+    // MiransasNetLabel children re-resolve their textColor at draw time, so
+    // no per-field reassignment is needed here. _wifiIcon's contentTintColor
+    // is state-dependent and is reassigned on the next updateWithSnapshot
+    // tick.
+    [self setNeedsDisplay:YES];
 }
 
 @end
