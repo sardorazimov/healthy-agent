@@ -9,6 +9,7 @@
 #include <sys/file.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <CoreFoundation/CoreFoundation.h> // Bundle kontrolü için eklendi
 
 #define MENUBAR_LOCK_PATH "/tmp/miransas-pulse.lock"
 
@@ -129,6 +130,21 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // --- .app İÇİNDEN Mİ ÇALIŞIYOR KONTROLÜ ---
+    if (!menubar) {
+        CFBundleRef mainBundle = CFBundleGetMainBundle();
+        if (mainBundle) {
+            CFURLRef bundleURL = CFBundleCopyBundleURL(mainBundle);
+            if (bundleURL) {
+                // Eğer binary bir Bundle (.app) klasöründen çalışıyorsa otomatik menubar modunu aç
+                menubar = 1;
+                foreground = 1;
+                CFRelease(bundleURL);
+            }
+        }
+    }
+    // ------------------------------------------
+
     if (!foreground && daemonize() < 0) {
         perror("[Miransas-Agent] Daemon baslatilamadi");
         return 1;
@@ -154,7 +170,7 @@ int main(int argc, char *argv[]) {
 
         if (api_server_start(api_port) < 0) {
             fprintf(stderr, "[Miransas-Pulse] API server baslamadi (port %d kullanimda olabilir). "
-                            "Menubar API'sez devam ediyor.\n",
+                            "Menubar API'siz devam ediyor.\n",
                     api_port);
         }
 
