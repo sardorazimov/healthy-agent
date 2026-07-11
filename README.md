@@ -1,14 +1,14 @@
 # Miransas Pulse (miransas_agent)
 
-A lightweight, pure C-based background system performance monitoring utility and daemon for macOS. Miransas Pulse tracks system health, POSIX metrics, and process snapshots in real-time, delivering them via a local REST/SSE API, a transparent HUD, and a native macOS Menubar integration.
+A lightweight system performance monitoring utility and daemon for macOS, powered primarily by Objective-C (Cocoa/AppKit) for native UI integration and C for low-level POSIX metric collection. Miransas Pulse tracks system health, metrics, and process snapshots in real-time, delivering them via a local REST/SSE API, a transparent HUD, and a native macOS Menubar integration.
 
 ## Features
 
-* **Native Menubar App:** Runs silently in the background with a live health score indicator.
+* **Native Menubar App:** Runs silently in the background with a live health score indicator utilizing AppKit / `NSStatusBar`.
 * **Transparent HUD:** An on-demand, non-intrusive health panel for quick system snapshots.
 * **Daemonized Operation:** Managed robustly via macOS `launchd` for automatic startup and crash recovery (KeepAlive).
-* **Pure C Performance:** Minimal CPU and memory footprint, designed for continuous background execution.
-* **Network Broadcasting:** Broadcasts system metrics via UDP/API for external aggregation.
+* **Objective-C & C Hybrid Architecture:** Native Cocoa runtime performance combined with a minimal footprint for continuous background execution.
+* **Network Broadcasting:** Broadcasts system metrics via API for external aggregation.
 
 ## Installation
 
@@ -44,8 +44,8 @@ Bash
 chmod +x scripts/uninstall.sh
 ./scripts/uninstall.sh
 Architecture
-Core: Written in pure C.
+Core & UI: Objective-C utilizing Cocoa frameworks (AppKit, CoreFoundation).
 
-Integration: Utilizes CoreFoundation for seamless macOS .app bundle detection and launchd integration.
+Metrics: C-based low-level POSIX system calls.
 
 Persistence: Uses file-locking (/tmp/miransas-pulse.lock) to prevent multiple background instances.
